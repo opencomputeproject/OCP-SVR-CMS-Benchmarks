@@ -1,0 +1,6 @@
+setup_env.sh
+results.txt
+results
+results.csv
+*.log
+nohup.out

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+function show_vgdisplay()
+{
+    sudo vgdisplay > vgdisplay
+}
+
+function show_hostname()
+{
+    hostname > hostname
+}
+
+function show_ip_address()
+{
+    ifconfig > ifconfig    
+}
+
+function show_os_release()
+{
+    cat /etc/*release* > lsb_release
+}
+
+function show_uname()
+{
+    uname -a > uname
+}
+
+function show_free_disk()
+{
+    df -H  > df
+}
+
+function show_free_memory()
+{
+    free > free
+}
+
+function show_bios()
+{
+    sudo dmidecode -t bios > bios
+}
+
+function show_processor()
+{
+    sudo dmidecode -t processor > processor
+}
+
+function show_lscpu()
+{
+    lscpu > lscpu
+}
+
+function show_disk_topo()
+{
+    lsblk -o NAME,SIZE,TYPE,MOUNTPOINTS,MODEL,VENDOR > lsblk
+}
+
+function show_numactl_h()
+{
+    numactl -H > numactl_h
+}
+
+show_bios
+show_numactl_h
+show_processor
+show_lscpu
+show_hostname
+show_uname
+show_os_release
+show_ip_address
+show_disk_topo
+show_free_disk
+show_vgdisplay
+show_free_memory

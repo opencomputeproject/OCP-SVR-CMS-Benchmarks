@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+
+# This script/library contains common functions
+# used by other scripts and utilities within the
+# benchmark framework. 
+# This script sould be sourced from other scripts.
+
+#################################################################################################
+# Global Variables
+#################################################################################################
+
+VERSION="0.1.0"					    # Test version string
+
+SCRIPT_NAME=${0##*/}				# Name of this script
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )"	# Provides the full directory name of the script no matter where it is being called from
+
+OUTPUT_PATH="./${SCRIPT_NAME}.`hostname`.`date +"%m%d-%H%M"`" # output directory created by this script
+STDOUT_LOG_FILE="${SCRIPT_NAME}.log"			# Filename to save STDOUT and STDERR
+
+NDCTL=("$(command -v ndctl)")             # Path to ndctl, use -n option to specify location of the ndctl binary
+DAXCTL=("$(command -v daxctl)")           # Path to daxctl
+IPMCTL=("$(command -v ipmctl)")           # Path to ipmctl, use -i option to specify the location of the ipmctl binary
+CXLCLI=("$(command -v cxl)")			        # Path to cxl, use -c option to specify the location of the cxl binary
+BC=("$(command -v bc)")				            # Path to bc
+NUMACTL=("$(command -v numactl)")		      # Path to numactl
+LSCPU=("$(command -v lscpu)")             # Path to lscpu
+AWK=("$(command -v awk)")                 # Path to awk
+GREP=("$(command -v grep)")			          # Path to grep
+EGREP=("$(command -v egrep)")			        # Path to egrep
+SED=("$(command -v sed)")			            # Path to sed
+TPUT=("$(command -v tput)")			          # Path to tput
+CP=("$(command -v cp)")				            # Path to cp
+FIND=("$(command -v find)")               # Path to find
+TEE=("$(command -v tee)")                 # Path to tee
+TAIL=("$(command -v tail)")               # Path to tail
+
+#################################################################################################
+# Helper Functions
+#################################################################################################
+
+# Handle Ctrl-C User Input
+trap ctrl_c INT
+function ctrl_c() {
+  echo "INFO: Received CTRL+C - aborting"
+  display_end_info
+  popd &> /dev/null
+  exit 1
+}
+
+# Display test start information
+# arg1: The command line arguments passed in by using '$*' from the caller
+function display_start_info() {
+  START_TIME=$(date +%s)
+  echo "======================================================================="
+  echo "Starting ${SCRIPT_NAME}"
+  echo "${SCRIPT_NAME} Version ${VERSION}"
+  if [[ -n "$1" ]]; then
+    echo "${SCRIPT_NAME} $1"
+  fi
+  echo "Started: $(date --date @${START_TIME})"
+  echo "======================================================================="
+}
+
+# Display test end information
+function display_end_info() {
+  local END_TIME=$(date +%s)
+  local TEST_DURATION=$((${END_TIME}-${START_TIME}))
+
+  # Convert seconds to days, hours, minutes, and seconds.
+  # Only return the days, hours, and minutes if they are non-zero
+
+  local days=$((TEST_DURATION / 86400))
+  local hours=$(( (TEST_DURATION % 86400) / 3600 ))
+  local minutes=$(( (TEST_DURATION % 3600) / 60 ))
+  local seconds=$((TEST_DURATION % 60))
+
+  local result=""
+
+  if (( days > 0 )); then
+    result+="${days} day(s), "
+  fi
+
+  if (( hours > 0 )); then
+    result+="${hours} hour(s), "
+  fi
+
+  if (( minutes > 0 )); then
+    result+="${minutes} minute(s), "
+  fi
+
+  if (( seconds > 0 )); then
+    result+="${seconds} second(s)"
+  fi
+
+
+  echo "======================================================================="
+  echo "${SCRIPT_NAME} Completed"
+  echo "Ended: $(date --date @${END_TIME})"
+  echo "Duration: ${result}"
+  echo "Results: ${OUTPUT_PATH}"
+  echo "Logfile: ${LOG_FILE}"
+  echo "======================================================================="
+}
+
+# Create output directory
+function init_outputs() {
+   rm -rf $OUTPUT_PATH 2> /dev/null
+   mkdir $OUTPUT_PATH
+}
+
+# Save STDOUT and STDERR to a log file
+# arg1 = path to log file. If empty, save to current directory
+function log_stdout_stderr {
+  local LOG_PATH
+  if [[ $1 != "" ]]; then
+    # Use the specified path
+    LOG_PATH=${1}
+  else
+    # Use current working directory
+    LOG_PATH=$(pwd)
+  fi
+  LOG_FILE="${LOG_PATH}/${STDOUT_LOG_FILE}"
+  # Capture STDOUT and STDERR to a log file, and display to the terminal
+  if [[ ${TEE} != "" ]]; then
+    # Use the tee approach
+    exec &> >(${TEE} -a "${LOG_FILE}")
+  else
+    # Use the tail approach
+    exec &> "${LOG_FILE}" && ${TAIL} "${LOG_FILE}"
+  fi
+}
+
+#################################################################################################
+# Host Functions
+#################################################################################################
+
+# Get the number of CPU Sockets in the platform
+function get_num_sockets() {
+    NumOfSockets=$(lscpu | grep "Socket(s)" | awk -F: '{print $2}' | xargs)
+    echo "INFO: Number of Physcial Sockets: ${NumOfSockets}"
+}
+
+# Get the number of vCPUs per CPU socket 
+function get_num_cores_per_socket() {
+    NumOfCoresPerSocket=$(lscpu | grep "Core(s) per socket:" | awk -F: '{print $2}' | xargs)
+    echo "INFO: Number of Cores per Socket: ${NumOfCoresPerSocket}"
+}
+
+# Get the first vCPU on a given socket
+function get_first_cpu_on_socket() {
+    # Variables
+    declare -a first_vcpu_on_socket
+    
+    # Get the number of sockets
+    get_num_sockets
+
+    # For each CPU Socket, get the first vCPU and assign it to the first_vcpu_on_socket array
+    for ((s=0; s<=$((NumOfSockets-1)); s++))
+    do
+        first_vcpu=$(cat /sys/devices/system/node/node${s}/cpulist | cut -f1 -d"-")
+        if [ -z "${first_vcpu}" ]; then
+            echo "ERROR: Cannot determine the first vCPU on socket ${s}. Exiting."
+            first_vcpu=-1
+        fi
+        first_vcpu_on_socket[${s}]=${first_vcpu}
+        echo "INFO: First CPU on Socket ${s}: ${first_vcpu}"
+    done
+}
+
+# Check if Hyperthreading is enabled or disabled
+function check_hyperthreading() {
+    # Confirm if Hyperthreading is Enabled or Disabled
+    SMTStatus=$(cat /sys/devices/system/cpu/smt/active)
+    if [[ ${SMTStatus} -eq 0 ]]
+    then
+        echo "INFO: Hyperthreading is DISABLED"
+        HyperThreading=0
+    else
+        echo "INFO: Hyperthreading is ENABLED"
+        HyperThreading=1
+    fi
+}
+
+# Get the memory capacity (MemTotal) for each NUMA node in the host
+# This supports CPU-less/Memory-only NUMA nodes that are backed by CXL or PMem
+function get_memory_per_numa_node() {
+  declare -gA numa_memtotals  # declare global associative array
+  for numa_node_dir in /sys/devices/system/node/node*; do
+    numa_node=$(basename "$numa_node_dir")
+    meminfo_file="$numa_node_dir/meminfo"
+    if [ -f "$meminfo_file" ]; then
+      memtotal=$(grep 'MemTotal:' "$meminfo_file" | awk '{print $4}')
+      numa_memtotals["$numa_node"]=${memtotal}
+      echo "INFO: Node 0 MemTotal: ${memtotal} kB"
+    fi
+  done
+}
+
+# Clear the Page Cache. Requires root permission!
+function clear_page_cache() {
+    sync && echo 3 > /proc/sys/vm/drop_caches
+}

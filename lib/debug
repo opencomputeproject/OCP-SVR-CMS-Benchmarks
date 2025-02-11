@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+# Define the string printing formats
+
+_DBG_HDR_FMT="%.23s %s%s "
+_DBG_MSG_FMT="${_DBG_HDR_FMT}%s\n"
+
+# Print Debug messages with date/time, function name, line number, and optional string message
+function debug_msg() {
+  printf "$_DBG_MSG_FMT" $(date +%F.%T.%N) ${STR_DEBUG} ${BASH_SOURCE[1]##*/}:${FUNCNAME[1]}[${BASH_LINENO[0]}] "${@}"
+}

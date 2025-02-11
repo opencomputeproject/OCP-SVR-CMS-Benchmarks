@@ -1,0 +1,99 @@
+#!/usr/bin/env bash 
+
+sudo dmidecode -t memory | awk '
+BEGIN {
+  # Display Header
+  printf "%8s | %14s | %12s | %8s | %20s | %s\n", "Handle", "Manufacturer", "Speed", "Capacity", "Bank Locator" ,"Locator";
+  printf "=========|================|==============|==========|======================|====================\n";
+
+  # Variables
+  FoundDIMM=0;
+}
+
+# Found a 'Handle' identifier
+$1 == "Handle" {
+  # Trim the trailing comma
+  Handle=substr($2, 1, length($2)-1);
+  ReadNextLine=1;
+  #printf "Handle:%s\n", $2;
+  next;
+}
+
+# Check if the next line after the 'Handle' contains "Memory Device",
+# otherwise skip 
+ReadNextLine {
+  if ($0 ~ /Memory Device/) {
+    FoundDIMM=1;
+    #print $0;
+    #printf "FoundDimm=True\n";
+  } else {
+    FoundDIMM=0;
+    #printf "Not a DIMM. Continuing ..\n";
+  }
+  ReadNextLine=0;
+  next;
+}
+
+# Get the DIMM Size
+$1 == "Size:" {
+  if ($2 !="No") {
+    Size=$2 $3;
+    #printf "Size: %s\n", Size;
+  } else {
+    Size="0GB";
+    #printf "Size: %s\n", Size;
+  }
+  next;
+}
+
+# Get the Locator
+FoundDIMM && $1 == "Locator:" {
+  Locator="";
+  for (i=2; i<=NF; i++) {
+    Locator=Locator " " $i;
+  }
+  #printf "Locator:%s\n", Locator;
+  next;
+}
+
+# Get the Bank Locator
+FoundDIMM && $1 == "Bank" {
+  BankLocator="";
+  for (i=3; i<=NF; i++) {
+    BankLocator=BankLocator " " $i;
+  }
+  #printf "BankLocator:%s\n", BankLocator;
+  next;
+}
+
+# Get the DDR Speed
+FoundDIMM && $1 == "Speed:" {
+  Speed="";
+  for (i=2; i<=NF; i++) {
+    Speed=Speed " " $i;
+  }
+  #printf "Speed:%s\n", Speed;
+  next;
+}
+
+# Get the Manufacturer
+FoundDIMM && $1 == "Manufacturer:" {
+  Manufacturer="";
+  for (i=2; i<=NF; i++) {
+    Manufacturer=Manufacturer " " $i;
+  }
+  #printf "Manufacturer:%s\n", Manufacturer;
+  next;
+}
+
+
+
+# Print Table Row
+FoundDIMM && Size && Speed {
+  printf "%8s | %14s | %12s | %8s | %20s | %s\n", Handle, Manufacturer, Speed, Size, BankLocator, Locator;
+  Size="";
+  Manufacturer="";
+  Speed="";
+  BankLocator="";
+}
+'
