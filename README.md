@@ -41,8 +41,9 @@ This table shows the list of benchmarks included in this suite:
 | memcached | Memcached is a general-purpose distributed memory-caching system |
 | Qdrant-Synth | Creates synthetic vectors and benchmarks a Qdrant Vector Database running in a Docker Container |
 | redis | Redis is a source-available, in-memory storage, used as a distributed, in-memory key–value database, cache and message broker |
+| redis-memtier | Run the memtier benchmark against a redis instance |
 | stream | The STREAM benchmark is a simple synthetic benchmark program that measures sustainable memory bandwidth (in MB/s) and the corresponding computation rate for simple vector kernels.  |
-| tpcc | TPC-C (Transaction Processing Performance Council Benchmark C, is a benchmark used to compare the performance of online transaction processing systems. |
+| tpcc | TPC-C (Transaction Processing Performance Council Benchmark C), is a benchmark used to compare the performance of online transaction processing systems. |
 
 ## How to Install OCP-SRV-CMS-Benchmarks
 

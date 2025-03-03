@@ -130,6 +130,37 @@ function log_stdout_stderr {
   fi
 }
 
+# convert a mixed case string to uppercase
+function string_to_uppercase()
+{
+  local input_string="$1"
+  echo "${input_string^^}"
+}
+
+# Convert a string of style [0-9]+[k|K|m|M|g|G] to a number number
+function convert_to_number() {
+  local input_string=$( string_to_uppercase "$1" )
+  local last_char="${input_string: -1}"
+  local numeric_part="${input_string:0:$((${#input_string} - 1))}"
+  local result
+
+  if [[ "$numeric_part" =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]]; then
+    if [[ "$last_char" == "K" ]]; then
+      result=$(echo "scale=10; $numeric_part * 1024" | bc)
+    elif [[ "$last_char" == "M" ]]; then
+      result=$(echo "scale=10; $numeric_part * 1024 * 1024" | bc)
+    elif [[ "$last_char" == "G" ]]; then
+      result=$(echo "scale=10; $numeric_part * 1024 * 1024 * 1024" | bc)
+    fi
+  elif [[ "$input_string" =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]]; then #Handles cases where it is just a number.
+      result="$input_string"
+  else
+    echo "Invalid input to convert_to_number: $input_string"
+    exit 1
+  fi
+  echo $result
+}
+
 #################################################################################################
 # Host Functions
 #################################################################################################
