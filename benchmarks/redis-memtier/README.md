@@ -1,7 +1,7 @@
 # run-redis-memtier
 This benchmark uses the [Memtier](https://hub.docker.com/r/redislabs/memtier_benchmark) tool with the [redis-server](https://hub.docker.com/_/redis). The run-redis-memtier.sh script uses docker to orchastrate a single tenant environment.
 
-The benchmark run, increases the size of the data from 1kb to 4Mb in powers of 2.  A "warm up" phase is run where the database gets populated using the set operation, followed by the benchmark phase which uses a get/set ratio of 1:10.
+The benchmark run, increases the size of the data from 1kb to 4Mb in powers of 2.  A "warm up" phase is run where the database gets populated using the set operation, followed by the benchmark phase which uses a get/set ratio of 1:10 and a wait-ratio of 10:1.
 
 The script does not require root privileges to execute as docker allows us to run everything as a non-root user. However, there are optional OS tuning that does require root. 
 

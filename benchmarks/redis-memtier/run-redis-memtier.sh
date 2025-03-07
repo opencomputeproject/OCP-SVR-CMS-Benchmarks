@@ -44,7 +44,7 @@ TEST_RUN_TIME=300
 
 #SIZE_ARRAY=(1024 4096 8192 16384 32769 65536  131072 262144 524288 1048676 2097152 4194304 )
 NAME_ARRAY=("1k" "4k" "8k" "16k" "32k" "64k" "128k" "256k" "512k" "1M" "2M" "4M")
-# NAME_ARRAY=("1k" )
+#NAME_ARRAY=("1k" "1M" "4M")
 
 #################################################################################################
 # Functions
@@ -78,8 +78,7 @@ function verify_cmds()
 {
     local err_state=false
 
-    # for CMD in numactl lscpu lspci grep cut sed awk docker dstat; do
-    for CMD in numactl lscpu lspci grep cut sed awk docker; do
+    for CMD in numactl lscpu lspci grep cut sed awk docker dstat; do
         CMD_PATH=($(command -v ${CMD}))
         if [ ! -x "${CMD_PATH}" ]; then
             error_msg "${CMD} command not found! Please install the ${CMD} package."
@@ -133,22 +132,13 @@ function print_usage()
 }
 
 
-# From the MEM_ENVIRONMENT (-M) argument, determine what numactl options to use
+# From the REDIS_CPU_NUMA_NODE (-C) and MEMTIER_NUMA_NODE (-S)  argument, determine what cpusets to use
 # args: none
 # return: none
-function set_numactl_options()
+function extract_cpu_and_mem_nodes()
 {
-    case "$MEM_ENVIRONMENT" in
-        dram|cxl|mm|kerneltpp)
-            NUMACTL_OPTION="--cpunodebind ${REDIS_CPU_NUMA_NODE} --membind ${REDIS_MEM_NUMA_NODE}"
-            ;;
-        numapreferred)
-            NUMACTL_OPTION="--cpunodebind ${REDIS_CPU_NUMA_NODE} --preferred ${REDIS_MEM_NUMA_NODE}"
-            ;;
-        numainterleave)
-            NUMACTL_OPTION="--cpunodebind ${REDIS_CPU_NUMA_NODE} --interleave ${REDIS_MEM_NUMA_NODE}"
-            ;;
-    esac
+    REDIS_SERVER_CPU=$( grep "^NUMA node${REDIS_CPU_NUMA_NODE}" ${OUTPUT_PATH}/lscpu.log | tr -d ' ' | cut -d ':' -f 2)
+    MEMTIER_CLIENT_CPU=$( grep "^NUMA node${MEMTIER_NUMA_NODE}" ${OUTPUT_PATH}/lscpu.log | tr -d ' ' | cut -d ':' -f 2)
 }
 
 # Create the docker network
@@ -186,15 +176,16 @@ function start_servers()
 {
     info_msg "Start redis server instance"
 
-    numactl ${NUMACTL_OPTION}                                       \
-      docker run -d --rm --network ${DOCKER_NETWORK_NAME}           \
-                 -p 6379:${REDIS_START_PORT}                        \
-                 --name  ${REDIS_SERVER_NAME}                       \
-                 ${REDIS_DOCKER_IMAGE}                              \
-                   redis-server                                     \
-                     --maxmemory ${REDIS_MAX_MEMORY}gb              \
-                     --maxmemory-policy ${REDIS_REPLACEMENT_POLICY} \
-                     --save ""
+    docker run -d --rm --network ${DOCKER_NETWORK_NAME}           \
+               --cpuset-cpus=${REDIS_SERVER_CPU}                  \
+               --cpuset-mems=${REDIS_MEM_NUMA_NODE}               \
+               -p 6379:${REDIS_START_PORT}                        \
+               --name  ${REDIS_SERVER_NAME}                       \
+               ${REDIS_DOCKER_IMAGE}                              \
+                 redis-server                                     \
+                   --maxmemory ${REDIS_MAX_MEMORY}gb              \
+                   --maxmemory-policy ${REDIS_REPLACEMENT_POLICY} \
+                   --save ""
 
     local retcode=$?
     info_msg "Wait 5 seconds for all the instances to spin up"
@@ -228,6 +219,22 @@ function stop_servers()
     return 0
 }
 
+NUMASTAT_PID=
+function start_numastat()
+{
+    local outfile=${1}
+    info_msg "Start numastat"
+    ${SCRIPTDIR}/utils/collect-numastat.sh ${1} &
+    NUMASTAT_PID=$!
+    disown ${NUMASTAT_PID}
+}
+
+function stop_numastat()
+{
+    info_msg "Stop numastat"
+    kill -9 ${NUMASTAT_PID}
+}
+
 function set_output_path()
 {
     info_msg "Set the output path"
@@ -256,26 +263,26 @@ function warmup_database()
     info_msg "Start database warmup for data size '${data_size}"
     REDIS_PORT=${REDIS_START_PORT}
 
-    numactl --cpunodebind ${MEMTIER_NUMA_NODE}           \
-      docker run --rm  --network ${DOCKER_NETWORK_NAME}  \
-                 --name ${MEMTIER_CLIENT_NAME}           \
-                 ${MEMTIER_DOCKER_IMAGE}                 \
-        memtier_benchmark                                \
-            --test-time=${WARM_DB_RUN_TIME}              \
-            --select-db=0                                \
-            -n allkeys                                   \
-            --key-maximum=30000000                       \
-            --data-size=${data_size_in_digits}           \
-            --key-pattern=R:R                            \
-            --ratio=1:0                                  \
-            --pipeline=64                                \
-            --random-data                                \
-            --distinct-client-seed                       \
-            --randomize                                  \
-            --expiry-range=10-100                        \
-            --print-percentiles "50,95,99,99.9"          \
-            --port  ${REDIS_PORT}                        \
-            --server ${REDIS_SERVER_NAME} > ${OUTPUT_PATH}/${data_size}_warmup.log
+    docker run --rm  --network ${DOCKER_NETWORK_NAME}  \
+               --cpuset-cpus=${MEMTIER_CLIENT_CPU}     \
+               --name ${MEMTIER_CLIENT_NAME}           \
+               ${MEMTIER_DOCKER_IMAGE}                 \
+      memtier_benchmark                                \
+          --test-time=${WARM_DB_RUN_TIME}              \
+          --select-db=0                                \
+          -n allkeys                                   \
+          --key-maximum=30000000                       \
+          --data-size=${data_size_in_digits}           \
+          --key-pattern=R:R                            \
+          --ratio=1:0                                  \
+          --pipeline=64                                \
+          --random-data                                \
+          --distinct-client-seed                       \
+          --randomize                                  \
+          --expiry-range=10-100                        \
+          --print-percentiles "50,95,99,99.9"          \
+          --port  ${REDIS_PORT}                        \
+          --server ${REDIS_SERVER_NAME} > ${OUTPUT_PATH}/${data_size}_warmup.log
 
     local retcode=$?
     if [ ${retcode} -ne 0 ]; then
@@ -290,30 +297,37 @@ function run_benchmark()
 {
     local data_size=${1}
     local data_size_in_digits=$( convert_to_number ${data_size} )
-    info_msg "Start benchmark run"
+    info_msg "Start benchmark run for data size '${data_size}'"
     REDIS_PORT=${REDIS_START_PORT}
 
-    numactl --cpunodebind ${MEMTIER_NUMA_NODE}         \
-      docker run --rm --network ${DOCKER_NETWORK_NAME} \
-                 --name ${MEMTIER_CLIENT_NAME}         \
-                 ${MEMTIER_DOCKER_IMAGE}               \
-                  memtier_benchmark                    \
-                   --test-time=${TEST_RUN_TIME}        \
-                   --select-db=0                       \
-                   -n allkeys                          \
-                   --key-maximum=30000000              \
-                   --data-size=${data_size_in_digits}  \
-                   --key-pattern=R:R                   \
-                   --ratio=1:10                        \
-                   --wait-ratio=10:1                   \
-                   --pipeline=64                       \
-                   --random-data                       \
-                   --distinct-client-seed              \
-                   --randomize                         \
-                   --expiry-range=10-100               \
-                   --print-percentiles "50,95,99,99.9" \
-                   --port  ${REDIS_PORT}               \
-                   --server ${REDIS_SERVER_NAME} > ${OUTPUT_PATH}/${data_size}_bench.log
+    # Start the performance monitors
+    DSTATFILE=${OUTPUT_PATH}/${data_size}_dstat.csv
+    dstat -c -m --io --output ${DSTATFILE} &> /dev/null &
+    DSTAT_PID=$!
+    NUMASTATFILE=${OUTPUT_PATH}/${data_size}_numastat.csv
+    start_numastat ${NUMASTATFILE}
+
+    docker run --rm --network ${DOCKER_NETWORK_NAME} \
+               --cpuset-cpus=${MEMTIER_CLIENT_CPU}   \
+               --name ${MEMTIER_CLIENT_NAME}         \
+               ${MEMTIER_DOCKER_IMAGE}               \
+                memtier_benchmark                    \
+                 --test-time=${TEST_RUN_TIME}        \
+                 --select-db=0                       \
+                 -n allkeys                          \
+                 --key-maximum=30000000              \
+                 --data-size=${data_size_in_digits}  \
+                 --key-pattern=R:R                   \
+                 --ratio=1:10                        \
+                 --wait-ratio=10:1                   \
+                 --pipeline=64                       \
+                 --random-data                       \
+                 --distinct-client-seed              \
+                 --randomize                         \
+                 --expiry-range=10-100               \
+                 --print-percentiles "50,95,99,99.9" \
+                 --port  ${REDIS_PORT}               \
+                 --server ${REDIS_SERVER_NAME} > ${OUTPUT_PATH}/${data_size}_bench.log
 
 
     local retcode=$?
@@ -322,6 +336,10 @@ function run_benchmark()
     else
         info_msg "Done benchmark run for data size '${data_size}'"
     fi
+
+    # Stop the performance monitors
+    kill ${DSTAT_PID} > /dev/null 2>&1
+    stop_numastat
     return ${retcode}
 }
 
@@ -455,6 +473,7 @@ init
 
 # Save STDOUT and STDERR logs to the data collection directory
 log_stdout_stderr "${OUTPUT_PATH}"
+lscpu > ${OUTPUT_PATH}/lscpu.log
 
 # Display the header information
 display_start_info "$*"
@@ -467,7 +486,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-set_numactl_options
+extract_cpu_and_mem_nodes
 
 for i in $(seq 0 $((length - 1))); do
     info_msg "Start run for Data Size ${NAME_ARRAY[${i}]}"
