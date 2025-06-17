@@ -35,8 +35,9 @@ This table shows the list of benchmarks included in this suite:
 |-----------|-------------|
 | cloudsuite3/graph-analytics   | The Graph Analytics benchmark relies on the Spark framework to perform graph analytics on large-scale datasets |
 | cloudsuite3/inmem-analytics   | This benchmark uses Apache Spark and runs a collaborative filtering algorithm (alternating least squares, ALS) provided by Spark MLlib in memory on a dataset of user-movie ratings. The metric of interest is the time in seconds for computing movie recommendations. |
-| GPU/NVidia/nvbandwidth | EA tool for bandwidth measurements on NVIDIA GPUs |
-| GPU/NVidia/cuda_examples | Evaluates the data transfer rates for NVidia GPUs |
+| GPU/AMD/rocm_bandwidth_test | EA tool for bandwidth measurements on NVIDIA GPUs |
+| GPU/NVIDIA/nvbandwidth | EA tool for bandwidth measurements on NVIDIA GPUs |
+| GPU/NVIDIA/cuda_examples | Evaluates the data transfer rates for NVidia GPUs |
 | IntelMLC | Runs the Intel Memory Latency Checker (MLC) |
 | memcached | Memcached is a general-purpose distributed memory-caching system |
 | Qdrant-Synth | Creates synthetic vectors and benchmarks a Qdrant Vector Database running in a Docker Container |
@@ -53,7 +54,18 @@ To clone the OCP-SRV-CMS-Benchmarks repository along with its submodules, use th
 git clone --recursive https://github.com/opencomputeproject/OCP-SVR-CMS-Benchmarks.git
 ```
 
-This will clone the main repository and initialize all submodules, including the CUDA examples and NVIDIA Bandwidth Test tool.
+This will clone the main repository and initialize all submodules, including the AMD Bandwidth, CUDA examples, and NVIDIA Bandwidth Test tools.
+
+## Cloning and Initializing Submodules
+
+If you cloned this repository **without** the `--recursive` flag, the submodules (such as GPU benchmarks) will not be initialized automatically.  
+To fetch and initialize all submodules, run the following command from the root of the repository:
+
+```sh
+git submodule update --init --recursive
+```
+
+This will download all required submodules into their respective directories.
 
 ## Updating OCP-SRV-CMS-Benchmarks
 
@@ -84,6 +96,7 @@ This covers our contributions to the project - scripts, etc. If a benchmark uses
 We want to thank the contributors of the following projects, which are included as submodules in this repository:
 - [CUDA Examples](https://github.com/drkennetz/cuda_examples) by drkennetz
 - [NVIDIA Bandwidth Test](https://github.com/NVIDIA/nvbandwidth) by NVIDIA
+- [AMD ROCm Bandwidth Test](https://github.com/ROCm/rocm_bandwidth_test) by AMD
 
 ## Contributors
 

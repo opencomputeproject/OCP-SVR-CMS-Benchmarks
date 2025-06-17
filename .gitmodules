@@ -1,6 +1,9 @@
-[submodule "benchmarks/GPU/NVidia/cuda_examples"]
-	path = benchmarks/GPU/NVidia/cuda_examples
-	url = https://github.com/drkennetz/cuda_examples
-[submodule "benchmarks/GPU/NVidia/nvbandwidth"]
-	path = benchmarks/GPU/NVidia/nvbandwidth
-	url = https://github.com/NVIDIA/nvbandwidth
+[submodule "benchmarks/GPU/AMD/rocm_bandwidth_test"]
+	path = benchmarks/GPU/AMD/rocm_bandwidth_test
+	url = https://github.com/ROCm/rocm_bandwidth_test.git
+[submodule "benchmarks/GPU/NVIDIA/cuda_examples"]
+	path = benchmarks/GPU/NVIDIA/cuda_examples
+	url = https://github.com/drkennetz/cuda_examples.git
+[submodule "benchmarks/GPU/NVIDIA/nvbandwidth"]
+	path = benchmarks/GPU/NVIDIA/nvbandwidth
+	url = https://github.com/NVIDIA/nvbandwidth.git
