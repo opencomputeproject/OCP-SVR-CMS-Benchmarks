@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  stream:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: OCP-CMS-STREAM-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/stream/results
+    environment:
+      - BENCHMARK=${BENCHMARK:-}
+      - STREAM_CPU_NODE_BIND=${STREAM_CPU_NODE_BIND:-}
+      - STREAM_NUMA_NODES=${STREAM_NUMA_NODES:-}
+      - STREAM_NUM_LOOPS=${STREAM_NUM_LOOPS:-}
+      - STREAM_ARRAY_SIZE=${STREAM_ARRAY_SIZE:-}
+      - STREAM_OFFSET=${STREAM_OFFSET:-}
+      - STREAM_MALLOC=${STREAM_MALLOC:-}
+      - STREAM_AUTO_ARRAY_SIZE=${STREAM_AUTO_ARRAY_SIZE:-}
+      - SCALING_TEST=${SCALING_TEST:-}
+      - SCALING_CXL_NODE=${SCALING_CXL_NODE:-}
+      - SCALING_DRAM_NODE=${SCALING_DRAM_NODE:-}
+      - SCALING_NUM_TIMES=${SCALING_NUM_TIMES:-}
+      - SCALING_ARRAY_SIZE=${SCALING_ARRAY_SIZE:-}
+    command: ${ENTRY_COMMAND:-./entrypoint.sh}
+    networks:
+      - stream-network
+
+networks:
+  stream-network:
+    driver: bridge
