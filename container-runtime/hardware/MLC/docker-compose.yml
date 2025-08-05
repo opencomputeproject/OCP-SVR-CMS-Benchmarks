@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  intel-mlc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: OCP-CMS-intel-mlc-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/mlc/results
+    environment:
+      - CXL_NUMA_NODE=${CXL_NUMA_NODE:-}
+      - DRAM_NUMA_NODE=${DRAM_NUMA_NODE:-}
+      - SOCKET=${SOCKET:-}
+      - LOW_VERBOSITY=${LOW_VERBOSITY:-}
+      - MID_VERBOSITY=${MID_VERBOSITY:-}
+      - HIGH_VERBOSITY=${HIGH_VERBOSITY:-}
+      - LOADED_LATENCY=${LOADED_LATENCY:-}
+      - SINGLE_THREADED=${SINGLE_THREADED:-}
+      - ENABLE_512_AVX=${ENABLE_512_AVX:-}
+    command: ${MLC_COMMAND:-./mlc.sh}
+    networks:
+      - mlc-network
+
+networks:
+  mlc-network:
+    driver: bridge
