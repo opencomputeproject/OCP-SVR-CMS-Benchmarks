@@ -11,6 +11,7 @@ services:
       - ${HOST_RESULTS_DIR:-./results}:/opt/stream/results
     environment:
       - BENCHMARK=${BENCHMARK:-}
+      - ENABLE_AVX512=${ENABLE_AVX512:-}
       - STREAM_CPU_NODE_BIND=${STREAM_CPU_NODE_BIND:-}
       - STREAM_NUMA_NODES=${STREAM_NUMA_NODES:-}
       - STREAM_NUM_LOOPS=${STREAM_NUM_LOOPS:-}

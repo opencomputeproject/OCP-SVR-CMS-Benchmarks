@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -std=c17 -D_GNU_SOURCE -O3 -mavx2 -mavx512f -fopenmp
+CFLAGS = -std=c17 -D_GNU_SOURCE -O3 -mavx2 -fopenmp $(ENABLE_AVX512) #-std=c17 -D_GNU_SOURCE -O3 -mavx2 -fopenmp #-mavx512f
 DEBUG_CFLAGS = -std=c17 -D_GNU_SOURCE -O0 -mavx2 -mavx512f -g -fsanitize=undefined,address
 
 WARNING_CFLAGS =  -Wall -Wformat-truncation=2 -Werror=return-type -Werror=overflow
