@@ -1,0 +1,86 @@
+##################################################################################################
+# OCP SRV CMS - Base Container Image (Dockerfile.base)
+#
+# Shared base image for all CMS benchmark containers. Provides:
+#   - Ubuntu 24.04 LTS (Noble) base
+#   - System BOM collection tools (dmidecode, lm-sensors, ethtool, ipmitool, etc.)
+#   - CXL and NUMA tooling (cxl, numactl, libnuma-dev)
+#   - Build toolchain (gcc, make, etc.)
+#   - Python 3 runtime
+#   - Common utilities (bc, pciutils, util-linux, etc.)
+#   - The cms_common.sh library, collect_sysinfo.sh, and generate_report.sh at /opt/cms-utils/
+#
+# Individual benchmark Dockerfiles should:
+#   FROM ocp-cms-base:latest
+#   ... add benchmark-specific packages and build steps ...
+#
+# Build:
+#   docker build -t ocp-cms-base:latest -f Dockerfile.base .
+##################################################################################################
+
+FROM ubuntu:24.04
+
+LABEL maintainer="OCP SRV CMS Benchmarks"
+LABEL description="Base image for OCP CMS benchmark containers"
+LABEL version="0.1.0"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install all packages needed across benchmarks, organized by purpose
+RUN apt-get update && apt-get install -y \
+    #--- Core utilities ---
+    wget \
+    curl \
+    tar \
+    gzip \
+    bc \
+    jq \
+    util-linux \
+    procps \
+    coreutils \
+    #--- Build toolchain ---
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    automake \
+    autoconf \
+    libtool \
+    pkg-config \
+    #--- NUMA / CXL ---
+    numactl \
+    libnuma-dev \
+    cxl \
+    #--- Hardware inspection / BOM collection ---
+    dmidecode \
+    pciutils \
+    ipmitool \
+    lm-sensors \
+    ethtool \
+    net-tools \
+    iproute2 \
+    lsb-release \
+    sysstat \
+    lvm2 \
+    #--- Python ---
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the shared utils directory
+RUN mkdir -p /opt/cms-utils
+
+# Copy in the shared scripts
+COPY collect_sysinfo.sh  /opt/cms-utils/collect_sysinfo.sh
+COPY cms_common.sh       /opt/cms-utils/cms_common.sh
+COPY generate_report.sh  /opt/cms-utils/generate_report.sh
+
+# Make them executable
+RUN chmod +x /opt/cms-utils/collect_sysinfo.sh \
+    && chmod +x /opt/cms-utils/cms_common.sh \
+    && chmod +x /opt/cms-utils/generate_report.sh
+
+# Set a default working directory (benchmarks override this)
+WORKDIR /opt/benchmark
