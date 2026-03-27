@@ -1,38 +1,35 @@
-FROM ubuntu:22.04
+##################################################################################################
+# OCP SRV CMS - STREAM Benchmark Container
+#
+# Inherits from ocp-cms-base:latest which provides all common system packages,
+# the cms_common.sh library, collect_sysinfo.sh, and generate_report.sh at /opt/cms-utils/.
+#
+# This layer adds: STREAM source compilation and benchmark scripts.
+#
+# If the base image is not available, build it first:
+#   cd ../utils && docker build -t ocp-cms-base:latest -f Dockerfile.base .
+##################################################################################################
 
-# Install necessary packages
-RUN apt-get update && apt-get install -y \
-    wget \
-    tar \
-    numactl \
-    cxl-cli \
-    util-linux \
-    python3 \
-    python3-pip \
-    pciutils \
-    bc \
-    libnuma-dev \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+FROM ocp-cms-base:latest
 
 # Create working directory
 WORKDIR /opt/stream
 
-#Bring over the STREAM source and run scripts
+# Bring over the STREAM source and run scripts
 COPY stream/stream.c 			/opt/stream/stream.c
 COPY stream/Makefile			/opt/stream/Makefile
 COPY stream/run-stream-scaling.sh	/opt/stream/run-stream-scaling.sh
 COPY entrypoint.sh			/opt/stream/entrypoint.sh
 
-#make them executable
+# Make them executable
 RUN chmod +x run-stream-scaling.sh
 RUN chmod +x entrypoint.sh
 
-#build the stream executable
+# Build the stream executable
 RUN make
 
 # Create results directory
-RUN mkdir -p /opt/mlc/results
+RUN mkdir -p /opt/stream/results
 
 # Default command
 ENTRYPOINT ["./entrypoint.sh"]
