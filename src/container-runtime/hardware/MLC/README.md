@@ -1,15 +1,25 @@
-# How to
+# Intel MLC Benchmark - Container Runtime
+
+## How to
  
 Ensure that you have the necessary prerequisites installed, see root of this directory for instructions. 
 
-make a log directory for the benchmark
+### Build the base image first (one-time)
+
+```bash
+cd ../utils
+docker build -t ocp-cms-base:latest -f Dockerfile.base .
+```
+
+### Make a log directory for the benchmark
 
 ```bash
 mkdir -p results
 ```
+
 ## ENV file
 
-Copy EDITMEenv to your .env file for docker-compose. You must set 
+Copy EDITME.env to your .env file for docker-compose. You must set 
  - HOST_RESULTS_DIR: where the output from the benchmark is stored
  - CXL_NUMA_NODE and/or DRAM_NUMA_NODE: to the device(s) you wish to test
 
@@ -49,3 +59,18 @@ or without docker-compose
 ```bash
 sudo docker run -d --privileged --volume <path-to-your-host-result-dir>:/opt/mlc/results --env-file ./.env --name intel-mlc OCP-CMS-intel-mlc-benchmark
 ```
+
+## What it does
+
+The container:
+1. Collects comprehensive system hardware and software BOM (BIOS/firmware, CPU, memory, NUMA/CXL topology, PCI, kernel, packages, etc.)
+2. Runs the Intel MLC benchmark suite (idle latency, bandwidth, bandwidth ramp, interleave tests)
+3. Generates an HTML report and results tarball with system info and MLC output
+
+## Output
+
+Results are stored in the mounted results directory:
+ - `sysinfo/`: Comprehensive system BOM (see `sysinfo/SUMMARY.txt` for overview)
+ - `mlc.sh.<hostname>.<date>/`: MLC benchmark output directory with CSV result files and log
+ - `intel-mlc_report.html`: HTML report with system info and results
+ - `intel-mlc_results.tar.gz`: Archive of all output files
