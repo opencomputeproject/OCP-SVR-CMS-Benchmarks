@@ -25,10 +25,11 @@ REPORT_VERSION="0.1.0"
 RESULTS_DIR="${1:-.}"
 BENCHMARK_NAME="${2:-unknown}"
 CSV_FILE="${3:-${RESULTS_DIR}/results.csv}"
-HTML_FILE="${RESULTS_DIR}/${BENCHMARK_NAME}_report.html"
 
 # Resolve to absolute path so tar works correctly
 RESULTS_DIR_ABS="$(cd "${RESULTS_DIR}" 2>/dev/null && pwd)" || RESULTS_DIR_ABS="${RESULTS_DIR}"
+
+HTML_FILE="${RESULTS_DIR_ABS}/${BENCHMARK_NAME}_report.html"
 
 # Build tarball in the parent directory first, then move it in.
 # This avoids "file changed as we read it" when tar archives a directory

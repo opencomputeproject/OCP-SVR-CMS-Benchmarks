@@ -356,6 +356,35 @@ cms_collect_sysinfo() {
 }
 
 #################################################################################################
+# 7b. Report Generation
+#################################################################################################
+ 
+# Call the standalone generate_report.sh script.
+# Usage: cms_generate_report <results_dir> <benchmark_name> [csv_file]
+cms_generate_report() {
+    local results_dir="${1:-.}"
+    local bench_name="${2:-unknown}"
+    local csv_file="${3:-${results_dir}/results.csv}"
+    local script="/opt/cms-utils/generate_report.sh"
+ 
+    # Also look next to this library file
+    if [ ! -x "${script}" ]; then
+        local lib_dir
+        lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd 2>/dev/null)"
+        if [ -x "${lib_dir}/generate_report.sh" ]; then
+            script="${lib_dir}/generate_report.sh"
+        fi
+    fi
+ 
+    if [ -x "${script}" ]; then
+        cms_log_info "Generating report via ${script}..."
+        "${script}" "${results_dir}" "${bench_name}" "${csv_file}"
+    else
+        cms_log_warn "Report generator not found at ${script}"
+    fi
+}
+
+#################################################################################################
 # 8. CPU Frequency Governor
 #################################################################################################
 
