@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  heimdall:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - HEIMDALL_VERSION=${HEIMDALL_VERSION:-main}
+    container_name: OCP-CMS-heimdall-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/heimdall/container_results
+    environment:
+      # =================================================================
+      # Benchmark Selection
+      # =================================================================
+      - BENCHMARK=${BENCHMARK:-basic}
+      - CONFIG=${CONFIG:-bw}
+      - ACTION=${ACTION:-build_and_run}
+
+      # =================================================================
+      # Machine Configuration (-> hostname.env)
+      # =================================================================
+      - DISABLE_PREFETCH=${DISABLE_PREFETCH:-}
+      - BOOST_CPU=${BOOST_CPU:-}
+      - SOCKET_NUMBER=${SOCKET_NUMBER:-}
+      - SNC_MODE=${SNC_MODE:-}
+      # Cache test physical address config
+      - DIMM_PHYSICAL_START_ADDR=${DIMM_PHYSICAL_START_ADDR:-}
+      - CXL_PHYSICAL_START_ADDR=${CXL_PHYSICAL_START_ADDR:-}
+      - TEST_SIZE=${TEST_SIZE:-}
+
+      # =================================================================
+      # Basic Performance: BW vs Latency (100_bw_vs_latency.yaml)
+      #   Set BW_THREAD_NUM_TYPE to activate custom YAML generation.
+      #   Leave unset to use the default YAML shipped with heimdall.
+      # =================================================================
+      - BW_THREAD_NUM_TYPE=${BW_THREAD_NUM_TYPE:-}
+      - BW_THREAD_NUM_ARRAY=${BW_THREAD_NUM_ARRAY:-}
+      - BW_PATTERN_ITERATION=${BW_PATTERN_ITERATION:-}
+      - BW_BUFFER_SIZE_MB=${BW_BUFFER_SIZE_MB:-}
+      - BW_CORE_SOCKET_ARRAY=${BW_CORE_SOCKET_ARRAY:-}
+      - BW_NUMA_NODE_ARRAY=${BW_NUMA_NODE_ARRAY:-}
+      - BW_DELAY_ARRAY=${BW_DELAY_ARRAY:-}
+      - BW_LOADSTORE_ARRAY=${BW_LOADSTORE_ARRAY:-}
+      - BW_MEM_ALLOC_ARRAY=${BW_MEM_ALLOC_ARRAY:-}
+      - BW_LATENCY_PATTERN=${BW_LATENCY_PATTERN:-}
+      - BW_LATENCY_STRIDE=${BW_LATENCY_STRIDE:-}
+      - BW_LATENCY_BLOCK=${BW_LATENCY_BLOCK:-}
+      - BW_LATENCY_ACCESS=${BW_LATENCY_ACCESS:-}
+      - BW_BANDWIDTH_PATTERN=${BW_BANDWIDTH_PATTERN:-}
+      - BW_LOAD_BLOCK=${BW_LOAD_BLOCK:-}
+      - BW_STORE_BLOCK=${BW_STORE_BLOCK:-}
+
+      # =================================================================
+      # Basic Performance: Cache Heatmap (200_cache_heatmap.yaml)
+      #   Set CACHE_REPEAT to activate custom YAML generation.
+      #   Leave unset to use the default YAML shipped with heimdall.
+      # =================================================================
+      - CACHE_REPEAT=${CACHE_REPEAT:-}
+      - CACHE_TEST_TYPE=${CACHE_TEST_TYPE:-}
+      - CACHE_USE_FLUSH=${CACHE_USE_FLUSH:-}
+      - CACHE_FLUSH_TYPE=${CACHE_FLUSH_TYPE:-}
+      - CACHE_LDST_TYPE=${CACHE_LDST_TYPE:-}
+      - CACHE_CORE_ID=${CACHE_CORE_ID:-}
+      - CACHE_NODE_ID=${CACHE_NODE_ID:-}
+      - CACHE_ACCESS_ORDER=${CACHE_ACCESS_ORDER:-}
+      - CACHE_STRIDE_SIZES=${CACHE_STRIDE_SIZES:-}
+      - CACHE_BLOCK_NUMS=${CACHE_BLOCK_NUMS:-}
+
+      # =================================================================
+      # LLM Bench
+      # =================================================================
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+
+      # =================================================================
+      # CMS Verbosity (controls cms_log_debug output)
+      #   0 = normal, 1+ = debug logging
+      # =================================================================
+      - CMS_VERBOSITY=${CMS_VERBOSITY:-0}
+
+    command: ${ENTRY_COMMAND:-/opt/heimdall/entrypoint.sh}
+    networks:
+      - heimdall-network
+
+networks:
+  heimdall-network:
+    driver: bridge
