@@ -27,29 +27,19 @@ RUN wget https://launchpad.net/libmemcached/1.0/1.0.18/+download/libmemcached-1.
     && tar -xvzf libmemcached-1.0.18.tar.gz \
     && rm libmemcached-1.0.18.tar.gz
 
-# Patch clients/memflush.cc - fix NULL pointer checks
-RUN sed -i 's/if (opt_servers == false)/if (!opt_servers)/g' \
-    /opt/memcached-bench/libmemcached-1.0.18/clients/memflush.cc
-
-# Patch clients/memaslap.c - add global variable definitions
-RUN sed -i '/#include "ms_memslap.h"/a \\n/* global structure */\nms_global_t ms_global;\n\n/* global stats information structure */\nms_stats_t ms_stats;\n\n/* global statistic structure */\nms_statistic_t ms_statistic;' \
-    /opt/memcached-bench/libmemcached-1.0.18/clients/memaslap.c
-
-# Patch clients/ms_memslap.h - add extern to global variable declarations
-RUN sed -i 's/^ms_global_t ms_global;/extern ms_global_t ms_global;/' \
-    /opt/memcached-bench/libmemcached-1.0.18/clients/ms_memslap.h \
-    && sed -i 's/^ms_stats_t ms_stats;/extern ms_stats_t ms_stats;/' \
-    /opt/memcached-bench/libmemcached-1.0.18/clients/ms_memslap.h \
-    && sed -i 's/^ms_statistic_t ms_statistic;/extern ms_statistic_t ms_statistic;/' \
-    /opt/memcached-bench/libmemcached-1.0.18/clients/ms_memslap.h
+# Patch libmemcached for modern compilers and memaslap build.
+# Instead of fragile sed one-liners, use a patch script that verifies each step.
+COPY patch_libmemcached.sh /opt/memcached-bench/patch_libmemcached.sh
+RUN chmod +x /opt/memcached-bench/patch_libmemcached.sh \
+    && /opt/memcached-bench/patch_libmemcached.sh /opt/memcached-bench/libmemcached-1.0.18
 
 # Build libmemcached with memaslap enabled
 RUN cd /opt/memcached-bench/libmemcached-1.0.18 \
     && ./configure --enable-memaslap CFLAGS="-fpermissive -Wno-error" CXXFLAGS="-fpermissive -Wno-error" \
-    && make -j$(nproc) || true \
-    && cp clients/memaslap /usr/local/bin/memaslap 2>/dev/null; \
-    make install 2>/dev/null; \
-    ldconfig
+    && make -j$(nproc) \
+    && cp clients/memaslap /usr/local/bin/memaslap \
+    && make install \
+    && ldconfig
 
 # Bring over the run script and entrypoint
 COPY run_memcached.sh    /opt/memcached-bench/run_memcached.sh
