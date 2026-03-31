@@ -9,17 +9,14 @@
 # In a container running as root, these are synthesized from the
 # environment variables passed in via docker-compose.
 #
-# If cms_common.sh is already sourced, we use its logging. Otherwise
-# we fall back to plain echo.
+# NOTE: No `set -euo pipefail` — env vars may legitimately be empty.
 # =============================================================================
 
-set -euo pipefail
-
 # Use CMS logging if available, else plain echo
-if command -v cms_log_info &>/dev/null; then
+if type cms_log_info &>/dev/null; then
     _log() { cms_log_info "$*"; }
 else
-    _log() { echo "[INFO] $*"; }
+    _log() { echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $*"; }
 fi
 
 ENV_DIR="/opt/heimdall/benchmark/basic_performance/env_files"

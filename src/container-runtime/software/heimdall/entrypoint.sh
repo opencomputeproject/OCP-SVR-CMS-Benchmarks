@@ -15,12 +15,22 @@
 # ACTION:    build_and_run | build | run | install | all
 # =============================================================================
 
-set -euo pipefail
+# NOTE: We intentionally do NOT use `set -euo pipefail` here.
+# Many CMS functions and system queries return non-zero on missing
+# hardware, missing tools, or permission issues — those are warnings,
+# not fatal errors. The heimdall uv commands are the only ones we
+# explicitly check for failure.
 
 # -------------------------------------------------------------------------
 # Source the OCP CMS common library
 # -------------------------------------------------------------------------
-source /opt/cms-utils/cms_common.sh
+if [ -f /opt/cms-utils/cms_common.sh ]; then
+    source /opt/cms-utils/cms_common.sh
+else
+    echo "[ERROR] CMS common library not found at /opt/cms-utils/cms_common.sh"
+    echo "[ERROR] Was the container built FROM ocp-cms-base:latest?"
+    exit 1
+fi
 
 # Set benchmark identity (used by CMS banners and logging)
 CMS_SCRIPT_NAME="heimdall"
@@ -34,15 +44,23 @@ CONFIG="${CONFIG:-bw}"
 ACTION="${ACTION:-build_and_run}"
 RESULTS_MOUNT="/opt/heimdall/container_results"
 
-# Set the CMS output path to the results mount so logs land there
-CMS_OUTPUT_PATH="${RESULTS_MOUNT}"
-
 # -------------------------------------------------------------------------
 # CMS initialization
+#
+# IMPORTANT: We do NOT call cms_init_outputs here because it does
+# rm -rf on CMS_OUTPUT_PATH, which would destroy the Docker volume
+# mount point. Instead we just ensure the directory exists and is
+# clean of stale files from a previous run.
 # -------------------------------------------------------------------------
+CMS_OUTPUT_PATH="${RESULTS_MOUNT}"
+mkdir -p "${CMS_OUTPUT_PATH}"
+
 cms_trap_ctrlc
-cms_init_outputs
-cms_log_stdout_stderr
+
+# Start logging to file (tee's to both terminal and log file so that
+# 'docker logs' still shows output).
+cms_log_stdout_stderr "${CMS_OUTPUT_PATH}"
+
 cms_display_start_info "${BENCHMARK} ${CONFIG} ${ACTION}"
 
 cms_log_info "BENCHMARK : ${BENCHMARK}"
@@ -62,6 +80,7 @@ cms_query_topology
 
 # -------------------------------------------------------------------------
 # Set performance governor for stable benchmark results
+# (will warn but not fail if cpufreq is not available)
 # -------------------------------------------------------------------------
 cms_set_performance_governor
 
@@ -89,24 +108,31 @@ run_run() {
     uv run heimdall bench run "${BENCHMARK}" "${CONFIG}"
 }
 
+BENCH_EXIT=0
 case "${ACTION}" in
     install)
-        run_install
+        run_install || BENCH_EXIT=$?
         ;;
     build)
-        run_build
+        run_build || BENCH_EXIT=$?
         ;;
     run)
-        run_run
+        run_run || BENCH_EXIT=$?
         ;;
     build_and_run)
-        run_build
-        run_run
+        run_build || BENCH_EXIT=$?
+        if [ ${BENCH_EXIT} -eq 0 ]; then
+            run_run || BENCH_EXIT=$?
+        fi
         ;;
     all)
-        run_install
-        run_build
-        run_run
+        run_install || BENCH_EXIT=$?
+        if [ ${BENCH_EXIT} -eq 0 ]; then
+            run_build || BENCH_EXIT=$?
+        fi
+        if [ ${BENCH_EXIT} -eq 0 ]; then
+            run_run || BENCH_EXIT=$?
+        fi
         ;;
     *)
         cms_log_error "Unknown ACTION '${ACTION}'"
@@ -115,8 +141,15 @@ case "${ACTION}" in
         ;;
 esac
 
+if [ ${BENCH_EXIT} -ne 0 ]; then
+    cms_log_error "Benchmark exited with code ${BENCH_EXIT}"
+    cms_log_error "Check the log above for details"
+fi
+
 # -------------------------------------------------------------------------
 # Copy heimdall results into the mounted volume
+# (always attempt this, even if the benchmark failed, so partial
+# results and logs are preserved for debugging)
 # -------------------------------------------------------------------------
 cms_log_info "Copying benchmark results to ${RESULTS_MOUNT}..."
 
@@ -140,7 +173,7 @@ fi
 # -------------------------------------------------------------------------
 # Generate HTML report and results tarball
 # -------------------------------------------------------------------------
-cms_generate_report "${RESULTS_MOUNT}" "heimdall-${BENCHMARK}-${CONFIG}"
+cms_generate_report "${RESULTS_MOUNT}" "heimdall-${BENCHMARK}-${CONFIG}" || true
 
 # -------------------------------------------------------------------------
 # Restore system state
@@ -155,4 +188,7 @@ cms_display_end_info
 # -------------------------------------------------------------------------
 # Package all results into a tarball
 # -------------------------------------------------------------------------
-cms_package_results "${RESULTS_MOUNT}"
+cms_package_results "${RESULTS_MOUNT}" || true
+
+# Exit with the benchmark's exit code (not a CMS utility failure)
+exit ${BENCH_EXIT}
