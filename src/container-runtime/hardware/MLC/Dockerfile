@@ -27,7 +27,7 @@ RUN chmod +x entrypoint.sh
 
 # Grab mlc and unpack it then move it to /bin so it's in the path
 RUN /opt/mlc/get_mlc.sh
-RUN cp /opt/mlc/mlc_v3.11/Linux/mlc /bin/mlc
+RUN cp /opt/mlc/mlc_v3.12/Linux/mlc /bin/mlc
 
 # Create results directory
 RUN mkdir -p /opt/mlc/results
