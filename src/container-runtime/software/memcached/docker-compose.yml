@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  memcached-bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: OCP-CMS-memcached-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/memcached-bench/results
+    environment:
+      # NUMA / Memory Placement
+      - CPU_NUMA_NODE=${CPU_NUMA_NODE:-}
+      - MEM_NUMA_NODES=${MEM_NUMA_NODES:-}
+      - NUMA_POLICY=${NUMA_POLICY:-}
+      # Memcached Server Settings
+      - MEMCACHED_MEMORY_MB=${MEMCACHED_MEMORY_MB:-}
+      - MEMCACHED_THREADS=${MEMCACHED_THREADS:-}
+      - MEMCACHED_EXTRA_ARGS=${MEMCACHED_EXTRA_ARGS:-}
+      # Memaslap Client Settings
+      - MEMASLAP_THREADS=${MEMASLAP_THREADS:-}
+      - MEMASLAP_CONCURRENCY=${MEMASLAP_CONCURRENCY:-}
+      - MEMASLAP_DURATION=${MEMASLAP_DURATION:-}
+      - MEMASLAP_WINDOW_SIZE=${MEMASLAP_WINDOW_SIZE:-}
+      - MEMASLAP_EXTRA_ARGS=${MEMASLAP_EXTRA_ARGS:-}
+      # Container Resource Limits
+      - CONTAINER_MAX_MEMORY=${CONTAINER_MAX_MEMORY:-}
+      - CONTAINER_MAX_SWAP=${CONTAINER_MAX_SWAP:-}
+      # Test Metadata
+      - TEST_NOTE=${TEST_NOTE:-}
+    command: ${ENTRY_COMMAND:-./entrypoint.sh}
+    networks:
+      - memcached-network
+
+networks:
+  memcached-network:
+    driver: bridge
