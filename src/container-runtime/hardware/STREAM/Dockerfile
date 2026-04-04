@@ -20,10 +20,10 @@ COPY stream/stream.c 			/opt/stream/stream.c
 COPY stream/Makefile			/opt/stream/Makefile
 COPY stream/run-stream-scaling.sh	/opt/stream/run-stream-scaling.sh
 COPY entrypoint.sh			/opt/stream/entrypoint.sh
+COPY parse_results.py			/opt/stream/parse_results.py
 
 # Make them executable
-RUN chmod +x run-stream-scaling.sh
-RUN chmod +x entrypoint.sh
+RUN chmod +x run-stream-scaling.sh entrypoint.sh parse_results.py
 
 # Build the stream executable
 RUN make
@@ -33,4 +33,3 @@ RUN mkdir -p /opt/stream/results
 
 # Default command
 ENTRYPOINT ["./entrypoint.sh"]
-#CMD

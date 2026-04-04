@@ -41,13 +41,13 @@ RUN cd /opt/memcached-bench/libmemcached-1.0.18 \
     && make install \
     && ldconfig
 
-# Bring over the run script and entrypoint
+# Bring over the run script, parser, and entrypoint
 COPY run_memcached.sh    /opt/memcached-bench/run_memcached.sh
+COPY parse_results.py    /opt/memcached-bench/parse_results.py
 COPY entrypoint.sh       /opt/memcached-bench/entrypoint.sh
 
 # Make them executable
-RUN chmod +x run_memcached.sh
-RUN chmod +x entrypoint.sh
+RUN chmod +x run_memcached.sh parse_results.py entrypoint.sh
 
 # Create results directory
 RUN mkdir -p /opt/memcached-bench/results
@@ -57,4 +57,3 @@ EXPOSE 11211
 
 # Default command
 ENTRYPOINT ["./entrypoint.sh"]
-#CMD

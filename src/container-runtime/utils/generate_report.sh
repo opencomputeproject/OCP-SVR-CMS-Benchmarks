@@ -374,6 +374,31 @@ if [ -n "${CSV_FILE}" ] && [ -f "${CSV_FILE}" ]; then
     CSV_CONTENT=$(cat "${CSV_FILE}" 2>/dev/null)
 fi
 
+# Auto-discover result files produced by benchmark parsers
+# JSON is preferred (primary); CSV is fallback (for backward compat)
+_DISCOVERED_JSONS=()
+_DISCOVERED_CSVS=()
+if ! ${DRY_RUN} && [ -d "${RESULTS_DIR}" ]; then
+    # Discover JSON result files
+    while IFS= read -r _jf; do
+        _DISCOVERED_JSONS+=("${_jf}")
+    done < <(find "${RESULTS_DIR_ABS}" -maxdepth 2 -name "results_*.json" -type f 2>/dev/null | sort)
+    if [ ${#_DISCOVERED_JSONS[@]} -gt 0 ]; then
+        echo "[REPORT] Discovered ${#_DISCOVERED_JSONS[@]} JSON file(s) from benchmark parser"
+    fi
+
+    # Discover CSV result files (used only if no JSON found, or as supplement)
+    while IFS= read -r _cf; do
+        if [ -n "${CSV_FILE}" ] && [ "$(realpath "${_cf}" 2>/dev/null)" = "$(realpath "${CSV_FILE}" 2>/dev/null)" ]; then
+            continue
+        fi
+        _DISCOVERED_CSVS+=("${_cf}")
+    done < <(find "${RESULTS_DIR_ABS}" -maxdepth 2 -name "results_*.csv" -type f 2>/dev/null | sort)
+    if [ ${#_DISCOVERED_CSVS[@]} -gt 0 ]; then
+        echo "[REPORT] Discovered ${#_DISCOVERED_CSVS[@]} CSV file(s) from benchmark parser"
+    fi
+fi
+
 # ---- OCP-branded color scheme and typography ----
 # Colors from OCP brand guidelines:
 #   Nav/header: #5F6062 (OCP gray)
@@ -675,11 +700,39 @@ cat >> "${HTML_FILE}" << EOF
     <div class="content">
 EOF
 
-# ----- Benchmark Results (CSV) -----
-if [ -n "${CSV_CONTENT}" ]; then
-    echo "    <h2>Benchmark Results</h2>" >> "${HTML_FILE}"
+# ----- Benchmark Results -----
+
+# Derive a human-readable title from a results filename
+# e.g. "results_bw_latency.csv" -> "Bw Latency"
+# e.g. "results_mlc.json" -> "Mlc"
+_results_title() {
+    local basename
+    basename=$(basename "$1")
+    # Strip extension
+    basename="${basename%.*}"
+    # Strip "results_" prefix
+    basename="${basename#results_}"
+    # Replace underscores with spaces and title-case
+    echo "${basename}" | sed 's/_/ /g' | sed 's/\b\(.\)/\u\1/g'
+}
+
+# Helper: render a single CSV file as an HTML table
+# arg1: CSV file path
+# arg2: section title
+_render_csv_table() {
+    local csv_path="$1"
+    local title="$2"
+
+    [ -f "${csv_path}" ] || return
+
+    # Skip empty files
+    local line_count
+    line_count=$(wc -l < "${csv_path}" 2>/dev/null || echo "0")
+    [ "${line_count}" -lt 2 ] && return
+
+    echo "    <details class=\"category\" open><summary>${title}</summary><div class=\"category-content\">" >> "${HTML_FILE}"
     echo "    <table>" >> "${HTML_FILE}"
-    first_line=true
+    local first_line=true
     while IFS= read -r line; do
         [ -z "${line}" ] && continue
         echo "        <tr>" >> "${HTML_FILE}"
@@ -695,8 +748,38 @@ if [ -n "${CSV_CONTENT}" ]; then
         done
         echo "        </tr>" >> "${HTML_FILE}"
         first_line=false
-    done < "${CSV_FILE}"
+    done < "${csv_path}"
     echo "    </table>" >> "${HTML_FILE}"
+    echo "    </div></details>" >> "${HTML_FILE}"
+}
+
+_has_any_results=false
+
+# Render JSON result files (preferred — structured, collapsible)
+if [ ${#_DISCOVERED_JSONS[@]} -gt 0 ]; then
+    _has_any_results=true
+    echo "    <h2>Benchmark Results</h2>" >> "${HTML_FILE}"
+    for _json_file in "${_DISCOVERED_JSONS[@]}"; do
+        _title=$(_results_title "${_json_file}")
+        _render_json_category "${_json_file}" "${_title}" "open"
+    done
+fi
+
+# Render the explicit CSV if provided and no JSON was found
+if [ -n "${CSV_CONTENT}" ] && ! ${_has_any_results}; then
+    _has_any_results=true
+    echo "    <h2>Benchmark Results</h2>" >> "${HTML_FILE}"
+    _render_csv_table "${CSV_FILE}" "Results"
+fi
+
+# Render auto-discovered CSVs only if no JSON results were rendered
+# (avoids duplicate tables when both JSON and CSV exist for the same data)
+if [ ${#_DISCOVERED_CSVS[@]} -gt 0 ] && ! ${_has_any_results}; then
+    echo "    <h2>Benchmark Results</h2>" >> "${HTML_FILE}"
+    for _csv_file in "${_DISCOVERED_CSVS[@]}"; do
+        _title=$(_results_title "${_csv_file}")
+        _render_csv_table "${_csv_file}" "${_title}"
+    done
 fi
 
 # ----- System Information -----
@@ -743,13 +826,27 @@ fi
 # ----- Raw output file listing -----
 if ! ${DRY_RUN}; then
     echo "    <h2>Raw Output Files</h2>" >> "${HTML_FILE}"
-    echo "    <details class=\"category\"><summary>File Listing</summary><div class=\"category-content\"><pre>" >> "${HTML_FILE}"
+    echo "    <details class=\"category\"><summary>File Listing</summary><div class=\"category-content\">" >> "${HTML_FILE}"
+    echo "    <table><tr><th>File</th><th style=\"text-align:right\">Size</th></tr>" >> "${HTML_FILE}"
     find "${RESULTS_DIR}" -type f | sort | while read -r f; do
         relpath="${f#${RESULTS_DIR}/}"
         size=$(stat -c%s "${f}" 2>/dev/null || echo "?")
-        printf "%-60s %10s bytes\n" "${relpath}" "${size}" >> "${HTML_FILE}"
+        size_human=""
+        if [ "${size}" != "?" ] && [ "${size}" -gt 0 ] 2>/dev/null; then
+            if [ "${size}" -ge 1048576 ]; then
+                size_human="$(echo "scale=1; ${size}/1048576" | bc) MB"
+            elif [ "${size}" -ge 1024 ]; then
+                size_human="$(echo "scale=1; ${size}/1024" | bc) KB"
+            else
+                size_human="${size} B"
+            fi
+        else
+            size_human="? B"
+        fi
+        echo "    <tr><td><a href=\"${relpath}\">${relpath}</a></td><td style=\"text-align:right\">${size_human}</td></tr>" >> "${HTML_FILE}"
     done
-    echo "</pre></div></details>" >> "${HTML_FILE}"
+    echo "    </table>" >> "${HTML_FILE}"
+    echo "    </div></details>" >> "${HTML_FILE}"
 fi
 
 # Close content div and add footer
