@@ -174,4 +174,280 @@ YAMLEOF
     _log "Created: ${BATCH_DIR}/200_cache_heatmap.yaml"
 fi
 
+# -------------------------------------------------------------------------
+# 4. Detect AVX-512 and patch heimdall if not available
+#
+# Heimdall's x86 LdStPattern uses inline asm with ZMM registers
+# (vmovntdqa/vmovntdq) which cause SIGILL on non-AVX512 CPUs.
+# The PointerChaseLdStPattern class uses only basic mov/clflush/mfence
+# and works fine everywhere.
+#
+# If AVX-512 is not available, we:
+#   a) Patch CMakeLists.txt to remove -mavx512f
+#   b) Replace the ZMM bandwidth functions with portable memcpy equivalents
+#      while preserving PointerChaseLdStPattern untouched
+# -------------------------------------------------------------------------
+
+_HOST_ARCH=$(uname -m 2>/dev/null || echo "unknown")
+
+if [ "${_HOST_ARCH}" = "x86_64" ] || [ "${_HOST_ARCH}" = "amd64" ]; then
+
+_AVX512_COUNT="0"
+if grep -qi avx512 /proc/cpuinfo 2>/dev/null; then
+    _AVX512_COUNT="1"
+fi
+
+if [ "${_AVX512_COUNT}" -eq 0 ]; then
+    _log "CPU does NOT support AVX-512 — patching heimdall for portable x86 build"
+
+    # (a) Patch CMakeLists.txt: remove -mavx512f, use -march=native
+    CMAKEFILE="/opt/heimdall/benchmark/basic_performance/build/bw_latency_test/CMakeLists.txt"
+    if [ -f "${CMAKEFILE}" ]; then
+        sed -i 's/set(CMAKE_CXX_FLAGS_RELEASE "-mavx512f")/set(CMAKE_CXX_FLAGS_RELEASE "-march=native")/' "${CMAKEFILE}"
+        _log "Patched CMakeLists.txt: -mavx512f -> -march=native"
+    fi
+
+    # (b) Replace ldst_pattern_x86.h bandwidth functions with portable memcpy
+    #     Keep PointerChaseLdStPattern (uses mov/clflush/mfence, no AVX-512)
+    X86_LDST="/opt/heimdall/benchmark/basic_performance/src/machine/x86/ld_st/ldst_pattern_x86.h"
+    if [ -f "${X86_LDST}" ]; then
+        cp "${X86_LDST}" "${X86_LDST}.avx512.bak"
+        cat > "${X86_LDST}" << 'PATCHEOF'
+/*
+ * AUTO-PATCHED by OCP CMS container setup_env.sh
+ * Original AVX-512 (ZMM register) implementations replaced with portable
+ * memcpy equivalents because this CPU does not support AVX-512.
+ * PointerChaseLdStPattern is preserved unchanged (uses basic x86 only).
+ *
+ * Original file backed up as ldst_pattern_x86.h.avx512.bak
+ */
+
+#ifndef CXL_PERF_APP_ACCESS_PATTERN_X86_H
+#define CXL_PERF_APP_ACCESS_PATTERN_X86_H
+#include <core/system_define.h>
+#include <cstring>
+#include <functional>
+#include <machine/x86/ld_st/mem_utils_x86.h>
+#include <unordered_map>
+#include <utils/timer.h>
+using LdStPatternFunc = std::function<void(uint8_t *addr, uint64_t size)>;
+
+class LdStPattern {
+public:
+  LdStPattern() {
+    _ld_func_map[BwPatternSize::SIZE_64B] = load_64B;
+    _ld_func_map[BwPatternSize::SIZE_128B] = load_128B;
+    _ld_func_map[BwPatternSize::SIZE_256B] = load_256B;
+    _ld_func_map[BwPatternSize::SIZE_512B] = load_512B;
+    _st_func_map[BwPatternSize::SIZE_64B] = store_64B;
+    _st_func_map[BwPatternSize::SIZE_128B] = store_128B;
+    _st_func_map[BwPatternSize::SIZE_256B] = store_256B;
+    _st_func_map[BwPatternSize::SIZE_512B] = store_512B;
+  }
+  ~LdStPattern() = default;
+
+  LdStPatternFunc get_load_func(BwPatternSize type) {
+    auto it = _ld_func_map.find(type);
+    if (it == _ld_func_map.end()) {
+      std::cerr << "Can not find the function for the given type" << std::endl;
+    }
+    return it->second;
+  }
+
+  LdStPatternFunc get_store_func(BwPatternSize type) {
+    auto it = _st_func_map.find(type);
+    if (it == _st_func_map.end()) {
+      std::cerr << "Can not find the function for the given type" << std::endl;
+    }
+    return it->second;
+  }
+
+  /* --- Portable load functions (memcpy-based, replacing AVX-512 ZMM asm) --- */
+
+  static inline void load_64B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[64];
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)buffer, (void *)(addr + size_cnt), sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void load_128B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[128];
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)buffer, (void *)(addr + size_cnt), sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void load_256B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[256];
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)buffer, (void *)(addr + size_cnt), sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void load_512B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[512];
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)buffer, (void *)(addr + size_cnt), sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void load_with_flush(uint8_t *addr, uint64_t size,
+                                     uint64_t *time_log, Timer &timer) {
+    long size_cnt = 0;
+    volatile char buffer[64];
+    while (size_cnt < (long)size) {
+      timer.start();
+      std::memcpy((void *)buffer, (void *)(addr + size_cnt), sizeof(buffer));
+      *time_log += timer.elapsed();
+      std::memset((void *)(addr + size_cnt), 0, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  /* --- Portable store functions (memcpy-based, replacing AVX-512 ZMM asm) --- */
+
+  static inline void store_64B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[64] = {0};
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)(addr + size_cnt), (void *)buffer, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void store_128B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[128] = {0};
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)(addr + size_cnt), (void *)buffer, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void store_256B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[256] = {0};
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)(addr + size_cnt), (void *)buffer, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void store_512B(uint8_t *addr, uint64_t size) {
+    long size_cnt = 0;
+    volatile char buffer[512] = {0};
+    while (size_cnt < (long)size) {
+      std::memcpy((void *)(addr + size_cnt), (void *)buffer, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+  static inline void store_with_flush(uint8_t *addr, uint64_t size,
+                                      uint64_t *time_log, Timer &timer) {
+    long size_cnt = 0;
+    volatile char buffer[64] = {0};
+    while (size_cnt < (long)size) {
+      timer.start();
+      std::memcpy((void *)(addr + size_cnt), (void *)buffer, sizeof(buffer));
+      *time_log += timer.elapsed();
+      std::memset((void *)(addr + size_cnt), 0, sizeof(buffer));
+      size_cnt += sizeof(buffer);
+    }
+  }
+
+private:
+  std::unordered_map<BwPatternSize, LdStPatternFunc> _ld_func_map;
+  std::unordered_map<BwPatternSize, LdStPatternFunc> _st_func_map;
+};
+
+/*
+ * PointerChaseLdStPattern — UNCHANGED from original.
+ * Uses only basic x86 instructions (mov, clflush, mfence) — no AVX-512.
+ */
+class PointerChaseLdStPattern {
+public:
+  PointerChaseLdStPattern() = default;
+  ~PointerChaseLdStPattern() = default;
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+  static inline void load_64B(uint64_t *base_addr, uint64_t region_size,
+                              uint64_t stride_size, uint64_t block_size,
+                              uint64_t *time_log, Timer &timer) {
+    uint64_t scanned_size = 0;
+    uint64_t curr_pos = 0;
+    uint64_t next_pos = 0;
+    *time_log = 0;
+    MemUtils util;
+    while (scanned_size < region_size) {
+      uint64_t *curr_addr =
+          base_addr + curr_pos * stride_size / sizeof(uint64_t);
+      asm volatile("clflush 0(%0)" ::"r"(curr_addr) : "memory");
+      asm volatile("mfence" ::: "memory");
+      timer.start();
+      asm volatile("mov (%1), %0\n\t"
+                   : "=r"(next_pos)
+                   : "r"(curr_addr)
+                   : "memory");
+      asm volatile("mfence" ::: "memory");
+      *time_log += timer.elapsed();
+      curr_pos = next_pos;
+      scanned_size += block_size;
+    }
+  }
+#pragma GCC pop_options
+
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+  static inline void store_64B(uint64_t *base_addr, uint64_t region_size,
+                               uint64_t stride_size, uint64_t block_size,
+                               uint64_t *cindex, uint64_t *time_log,
+                               Timer &timer) {
+    uint64_t scanned_size = 0;
+    uint64_t curr_pos = 0;
+    uint64_t next_pos = 0;
+    *time_log = 0;
+    MemUtils util;
+    while (scanned_size < region_size) {
+      uint64_t *curr_addr =
+          base_addr + curr_pos * stride_size / sizeof(uint64_t);
+      asm volatile("clflush 0(%0)" ::"r"(curr_addr) : "memory");
+      asm volatile("mfence" ::: "memory");
+      next_pos = cindex[curr_pos];
+      timer.start();
+      asm volatile("mov %1, (%0)\n\t"
+                   :
+                   : "r"(curr_addr), "r"(next_pos)
+                   : "memory");
+      asm volatile("mfence" ::: "memory");
+      *time_log += timer.elapsed();
+      asm volatile("clflush 0(%0)" ::"r"(curr_addr) : "memory");
+      asm volatile("mfence" ::: "memory");
+      curr_pos = next_pos;
+      scanned_size += block_size;
+    }
+  }
+#pragma GCC pop_options
+};
+
+#endif // CXL_PERF_APP_ACCESS_PATTERN_X86_H
+PATCHEOF
+        _log "Patched ldst_pattern_x86.h: replaced AVX-512 asm with portable memcpy"
+    fi
+else
+    _log "CPU supports AVX-512 — using native ZMM instructions"
+fi
+
+else
+    _log "Non-x86 architecture (${_HOST_ARCH}) — AVX-512 patch not applicable"
+fi
+
 _log "Environment setup complete"

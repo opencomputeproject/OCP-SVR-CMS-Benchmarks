@@ -49,7 +49,7 @@ The entrypoint script sources `/opt/cms-utils/cms_common.sh` (provided by the ba
 | CMS Function | When Used |
 |---|---|
 | `cms_trap_ctrlc` | Container startup — graceful Ctrl-C handling |
-| `cms_init_outputs` / `cms_log_stdout_stderr` | Initialize results directory and log capture |
+| `cms_log_stdout_stderr` | Initialize log capture (tee to file + terminal) |
 | `cms_display_start_info` / `cms_display_end_info` | Start/end banners with elapsed time |
 | `cms_collect_sysinfo` | Before benchmark — full hardware/software BOM collection |
 | `cms_query_topology` | Before benchmark — log sockets, cores, NUMA nodes, CXL devices |

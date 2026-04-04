@@ -55,6 +55,24 @@ RESULTS_MOUNT="/opt/heimdall/container_results"
 CMS_OUTPUT_PATH="${RESULTS_MOUNT}"
 mkdir -p "${CMS_OUTPUT_PATH}"
 
+# -------------------------------------------------------------------------
+# Archive previous run data if the results directory is not empty
+# -------------------------------------------------------------------------
+_existing_files=$(find "${CMS_OUTPUT_PATH}" -mindepth 1 -maxdepth 1 -not -name "previous_runs" 2>/dev/null)
+if [ -n "${_existing_files}" ]; then
+    _archive_ts=$(date '+%Y%m%d-%H%M%S')
+    _archive_dir="${CMS_OUTPUT_PATH}/previous_runs/${_archive_ts}"
+    mkdir -p "${_archive_dir}"
+    echo "[INFO] Results directory not empty — archiving previous run to previous_runs/${_archive_ts}"
+    for _item in "${CMS_OUTPUT_PATH}"/*; do
+        _basename=$(basename "${_item}")
+        # Don't move the previous_runs directory into itself
+        [ "${_basename}" = "previous_runs" ] && continue
+        mv "${_item}" "${_archive_dir}/" 2>/dev/null || true
+    done
+    echo "[INFO] Archived $(find "${_archive_dir}" -type f | wc -l) files from previous run"
+fi
+
 cms_trap_ctrlc
 
 # Start logging to file (tee's to both terminal and log file so that
@@ -169,6 +187,13 @@ if [ -d "/opt/heimdall/benchmark/lockfree_bench/results" ]; then
     cp -r /opt/heimdall/benchmark/lockfree_bench/results/* "${RESULTS_MOUNT}/lockfree_bench_results/" 2>/dev/null || true
     cms_log_info "Copied: lockfree_bench/results/"
 fi
+
+# -------------------------------------------------------------------------
+# Parse benchmark results into standardized CSVs
+# -------------------------------------------------------------------------
+cms_log_info "Parsing benchmark results into CSV..."
+python3 /opt/heimdall/parse_results.py "${RESULTS_MOUNT}" "${BENCHMARK}" "${CONFIG}" || \
+    cms_log_warn "Results parser returned non-zero (partial results may still be available)"
 
 # -------------------------------------------------------------------------
 # Generate HTML report and results tarball
