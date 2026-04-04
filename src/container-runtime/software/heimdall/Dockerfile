@@ -35,9 +35,33 @@ RUN apt-get update && apt-get install -y \
     # Lockfree bench C++ dependencies
     libboost-all-dev \
     libcds-dev \
+    # Folly build dependencies (required by lockfree bench)
+    binutils-dev \
+    libdouble-conversion-dev \
+    libdwarf-dev \
+    libevent-dev \
+    libfast-float-dev \
+    libgflags-dev \
+    libgmock-dev \
+    libgtest-dev \
+    liblz4-dev \
+    libssl-dev \
+    libsnappy-dev \
+    libsodium-dev \
+    libzstd-dev \
+    ninja-build \
+    openssl \
+    sudo \
+    zlib1g-dev \
+    zstd \
     # Python dev headers (needed for some pip builds)
     python3-dev \
     python3-venv \
+    # LLM bench: vLLM CPU build requires gcc-12/g++-12
+    gcc-12 \
+    g++-12 \
+    # LLM bench: vLLM CPU runtime uses tcmalloc via LD_PRELOAD
+    libtcmalloc-minimal4t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # -- Install uv (Python package & project manager) ----------------------------
@@ -55,6 +79,9 @@ WORKDIR /opt/heimdall
 
 # -- Install heimdall Python environment via uv -------------------------------
 RUN uv sync
+# Ensure pip is available inside the venv — heimdall's LLM install scripts
+# call bare `pip install` which fails on Ubuntu 24.04 (PEP 668) without it.
+RUN uv pip install pip
 
 # -- Create directories the framework expects ---------------------------------
 RUN mkdir -p /opt/heimdall/results/basic_performance/100 \
@@ -66,9 +93,11 @@ RUN mkdir -p /opt/heimdall/results/basic_performance/100 \
 # -- Copy in container-runtime scripts ----------------------------------------
 COPY entrypoint.sh      /opt/heimdall/entrypoint.sh
 COPY setup_env.sh       /opt/heimdall/setup_env.sh
-RUN chmod +x entrypoint.sh setup_env.sh
+COPY parse_results.py   /opt/heimdall/parse_results.py
+RUN chmod +x entrypoint.sh setup_env.sh parse_results.py
 
 # -- Default results mount point ----------------------------------------------
 RUN mkdir -p /opt/heimdall/container_results
 
 ENTRYPOINT ["/opt/heimdall/entrypoint.sh"]
+
