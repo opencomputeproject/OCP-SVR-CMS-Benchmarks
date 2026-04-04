@@ -19,11 +19,10 @@ WORKDIR /opt/mlc
 COPY get_mlc.sh 	/opt/mlc/get_mlc.sh
 COPY mlc.sh	 	/opt/mlc/mlc.sh
 COPY entrypoint.sh	/opt/mlc/entrypoint.sh
+COPY parse_results.py	/opt/mlc/parse_results.py
 
 # Make them executable
-RUN chmod +x get_mlc.sh
-RUN chmod +x mlc.sh
-RUN chmod +x entrypoint.sh
+RUN chmod +x get_mlc.sh mlc.sh entrypoint.sh parse_results.py
 
 # Grab mlc and unpack it then move it to /bin so it's in the path
 RUN /opt/mlc/get_mlc.sh
@@ -34,4 +33,3 @@ RUN mkdir -p /opt/mlc/results
 
 # Default command
 ENTRYPOINT ["./entrypoint.sh"]
-#CMD
