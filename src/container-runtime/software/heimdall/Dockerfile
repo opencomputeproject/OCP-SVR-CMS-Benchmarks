@@ -77,6 +77,10 @@ RUN git clone --branch ${HEIMDALL_VERSION} \
 
 WORKDIR /opt/heimdall
 
+# -- Apply container-runtime compatibility patches ----------------------------
+COPY patches/ /tmp/heimdall-patches/
+RUN git apply --unidiff-zero /tmp/heimdall-patches/*.patch
+
 # -- Install heimdall Python environment via uv -------------------------------
 RUN uv sync
 # Ensure pip is available inside the venv — heimdall's LLM install scripts
@@ -100,4 +104,3 @@ RUN chmod +x entrypoint.sh setup_env.sh parse_results.py
 RUN mkdir -p /opt/heimdall/container_results
 
 ENTRYPOINT ["/opt/heimdall/entrypoint.sh"]
-
