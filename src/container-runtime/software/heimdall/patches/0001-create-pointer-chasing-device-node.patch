@@ -1,0 +1,50 @@
+diff --git a/benchmark/basic_performance/scripts/utils/batch_cache.py b/benchmark/basic_performance/scripts/utils/batch_cache.py
+index a2b71d2..b3ad709 100644
+--- a/benchmark/basic_performance/scripts/utils/batch_cache.py
++++ b/benchmark/basic_performance/scripts/utils/batch_cache.py
+@@ -46,0 +47,4 @@ from heimdall.utils.path import get_workspace_path
++DEVICE_NAME = "pointer_chasing"
++DEVICE_PATH = f"/dev/{DEVICE_NAME}"
++SYSFS_DEV_PATH = f"/sys/class/{DEVICE_NAME}/{DEVICE_NAME}/dev"
++
+@@ -104,0 +109,31 @@ def get_bin_path():
++def remove_device_node():
++    if os.path.exists(DEVICE_PATH):
++        run_as_sudo(f"rm -f {DEVICE_PATH}")
++
++
++def create_device_node():
++    for _ in range(20):
++        if os.path.exists(SYSFS_DEV_PATH):
++            break
++        time.sleep(0.1)
++    else:
++        logger.error(f"Device metadata {SYSFS_DEV_PATH} does not exist.")
++        sys.exit(1)
++
++    with open(SYSFS_DEV_PATH, "r", encoding="utf-8") as f:
++        major_minor = f.read().strip()
++
++    try:
++        major, minor = major_minor.split(":", 1)
++    except ValueError:
++        logger.error(f"Invalid device metadata in {SYSFS_DEV_PATH}: {major_minor}")
++        sys.exit(1)
++
++    remove_device_node()
++    result = run_as_sudo(f"mknod {DEVICE_PATH} c {major} {minor}")
++    if result is not None and result.exited != 0:
++        logger.error(f"Failed to create device node {DEVICE_PATH}.")
++        sys.exit(1)
++    run_as_sudo(f"chmod 666 {DEVICE_PATH}")
++
++
+@@ -142,0 +178 @@ def check_and_remove_module(module_name):
++    remove_device_node()
+@@ -163 +199,5 @@ def insert_module():
+-    run_as_sudo(cmd)
++    result = run_as_sudo(cmd)
++    if result is not None and result.exited != 0:
++        logger.error(f"Failed to insert module {module_path}.")
++        sys.exit(1)
++    create_device_node()

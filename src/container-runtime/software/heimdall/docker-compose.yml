@@ -11,6 +11,10 @@ services:
     privileged: true
     volumes:
       - ${HOST_RESULTS_DIR:-./results}:/opt/heimdall/container_results
+      # Required for the cache benchmark, which builds and loads a kernel module
+      # against the host kernel from inside the privileged container.
+      - /lib/modules:/lib/modules:ro
+      - /usr/src:/usr/src:ro
     environment:
       # =================================================================
       # Benchmark Selection
