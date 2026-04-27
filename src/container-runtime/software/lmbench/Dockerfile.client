@@ -1,0 +1,55 @@
+##################################################################################################
+# LMBench Client — Workload Generator + CMS Reporting
+#
+# Runs LMBench workload generators (run-bench.py --start-from 3) against
+# an external vLLM/LMCache serving endpoint on localhost:30080.
+#
+# This container never installs vLLM or LMCache — it only generates
+# traffic and collects/parses results into the CMS HTML report format.
+#
+# Uses network_mode: "service:lmcache-server" in docker-compose so that
+# localhost:30080 reaches the server container directly.
+##################################################################################################
+
+FROM ocp-cms-base:latest
+
+ARG LMBENCH_VERSION=main
+ARG DEBIAN_FRONTEND=noninteractive
+
+# -- System packages -----------------------------------------------------------
+RUN apt-get update && apt-get install -y \
+    git \
+    python3-dev \
+    python3-venv \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# -- Python virtualenv ---------------------------------------------------------
+RUN python3 -m venv /opt/client-venv
+ENV PATH="/opt/client-venv/bin:${PATH}"
+ENV VIRTUAL_ENV="/opt/client-venv"
+
+RUN pip install --upgrade pip
+
+# -- Clone LMBench -------------------------------------------------------------
+RUN git clone --branch ${LMBENCH_VERSION} \
+        https://github.com/LMCache/LMBench.git /opt/lmbench
+WORKDIR /opt/lmbench
+
+# -- Install LMBench Python dependencies (no vLLM/LMCache needed) -------------
+RUN pip install -r requirements.txt
+
+# -- Create directories --------------------------------------------------------
+RUN mkdir -p /opt/lmbench/4-latest-results \
+             /opt/lmbench/container_results
+
+# -- Copy in CMS integration scripts ------------------------------------------
+COPY client-entrypoint.sh  /opt/lmbench/client-entrypoint.sh
+COPY setup_env.sh          /opt/lmbench/setup_env.sh
+COPY parse_results.py      /opt/lmbench/parse_results.py
+RUN chmod +x /opt/lmbench/client-entrypoint.sh \
+             /opt/lmbench/setup_env.sh \
+             /opt/lmbench/parse_results.py
+
+ENTRYPOINT ["/opt/lmbench/client-entrypoint.sh"]

@@ -1,0 +1,8 @@
+# LMCache Backend: Local Disk Offloading
+# No external services required.
+# KV cache spills to local disk when CPU RAM is full.
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
+local_disk: true
+max_local_disk_size: 50

@@ -1,0 +1,106 @@
+version: '3.8'
+
+# =============================================================================
+# LMBench + LMCache — Two-Container Benchmark
+#
+#   CPU mode:   docker compose up
+#   GPU mode:   docker compose --profile gpu up
+#   Split mode: see docker-compose.client-only.yml
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Server: vLLM + LMCache (CPU, default)
+  # ---------------------------------------------------------------------------
+  lmcache-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        VLLM_DEVICE: cpu
+    container_name: ocp-cms-lmcache-server
+    privileged: true
+    ports:
+      - "30080:30080"
+    env_file: .env
+    networks:
+      - lmbench-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:30080/v1/models"]
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
+  # Server: vLLM + LMCache (GPU)
+  # ---------------------------------------------------------------------------
+  lmcache-server-gpu:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      args:
+        VLLM_DEVICE: gpu
+    container_name: ocp-cms-lmcache-server
+    privileged: true
+    ports:
+      - "30080:30080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file: .env
+    networks:
+      - lmbench-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:30080/v1/models"]
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
+  # Client: LMBench workload generator + CMS reporting
+  # ---------------------------------------------------------------------------
+  lmbench-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+      args:
+        LMBENCH_VERSION: ${LMBENCH_VERSION:-main}
+    container_name: ocp-cms-lmbench-client
+    privileged: true
+    network_mode: "service:lmcache-server"
+    depends_on:
+      lmcache-server:
+        condition: service_healthy
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/lmbench/container_results
+    env_file: .env
+
+  # Client (GPU variant — same image, different network dependency)
+  lmbench-client-gpu:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+      args:
+        LMBENCH_VERSION: ${LMBENCH_VERSION:-main}
+    container_name: ocp-cms-lmbench-client
+    privileged: true
+    network_mode: "service:lmcache-server-gpu"
+    depends_on:
+      lmcache-server-gpu:
+        condition: service_healthy
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/lmbench/container_results
+    env_file: .env
+
+networks:
+  lmbench-net:
+    driver: bridge
