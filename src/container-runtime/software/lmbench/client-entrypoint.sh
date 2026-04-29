@@ -139,6 +139,13 @@ cd "${LMBENCH_DIR}"
 
 export HF_TOKEN="${HF_TOKEN:-}"
 
+# Workaround for upstream LMBench bug: multi-round-qa.py writes CSV to
+# ../../4-latest-results/<org>/<model>_<workload>_<qps>.csv but doesn't
+# mkdir the <org> parent for slash-containing HF model IDs (e.g. meta-llama/...).
+MODEL_ORG=$(echo "${LMBENCH_MODEL_URL:-meta-llama/Llama-3.1-8B-Instruct}" | cut -d/ -f1)
+mkdir -p "${LMBENCH_DIR}/4-latest-results/${MODEL_ORG}"
+cms_log_info "Pre-created results dir: 4-latest-results/${MODEL_ORG}"
+
 python3 run-bench.py \
     --start-from 3 \
     --model-url "${LMBENCH_MODEL_URL:-meta-llama/Llama-3.1-8B-Instruct}" \

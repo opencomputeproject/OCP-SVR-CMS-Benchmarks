@@ -4,3 +4,9 @@ mlc_loaded_latency.input
 *mlc.sh.*
 *sysbench-tpcc.*
 .DS_Store
+
+# Local-only files (do not commit)
+.env
+**/.env
+results/
+**/results/

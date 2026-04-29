@@ -35,8 +35,30 @@ RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
         pip install vllm; \
     fi
 
-# -- Install LMCache ----------------------------------------------------------
-RUN pip install lmcache
+# -- Install LMCache --------------------------------------------------------
+# CPU: prebuilt wheel (no CUDA kernels needed).
+# GPU: source build with Blackwell sm_120. Prebuilt wheel's CUDA kernels
+# (multi_layer_kv_transfer) lack sm_120 binary → cudaErrorNoKernelImageForDevice
+# on Blackwell at first KV offload. Force source compile with TORCH_CUDA_ARCH_LIST="12.0".
+ARG LMCACHE_GIT_REF=v0.4.4
+RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
+        pip install lmcache; \
+    else \
+        pip install ninja nvidia-cuda-nvcc-cu12 && \
+        export CUDA_HOME=/opt/server-venv/lib/python3.12/site-packages/nvidia/cuda_nvcc && \
+        export PATH="${CUDA_HOME}/bin:${PATH}" && \
+        TORCH_CUDA_ARCH_LIST="12.0" \
+            pip install --no-build-isolation \
+                "git+https://github.com/LMCache/LMCache.git@${LMCACHE_GIT_REF}"; \
+    fi
+
+# -- CUDA 12 runtime for nixl_ep (GPU only) ------------------------------------
+# vLLM 0.20.0 ships nixl_ep prebuilt against CUDA 12, while torch wheel pulls CUDA 13.
+# Install CUDA 12 runtime side-by-side and add to LD_LIBRARY_PATH so nixl_ep can dlopen libcudart.so.12.
+RUN if [ "${VLLM_DEVICE}" != "cpu" ]; then \
+        pip install nvidia-cuda-runtime-cu12; \
+    fi
+ENV LD_LIBRARY_PATH="/opt/server-venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
 
 # -- Copy pre-baked backend configs and entrypoint -----------------------------
 WORKDIR /opt/server
