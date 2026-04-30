@@ -224,9 +224,29 @@ def parse_lmbench_results(results_dir, suite_name):
         "test": suite_name,
         "parser_version": "2.0.0",
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "results": results if results else None,
-        "errors": errors if errors else None,
     }
+
+    # When there's a single workload result, also promote its metrics to the
+    # top level so the report renderer surfaces them in the section header
+    # Property/Value table (vs. an unreadable 26-column wide table).
+    if len(results) == 1:
+        promoted = (
+            "baseline_key", "workload_type", "qps",
+            "successful_requests", "benchmark_duration_s",
+            "request_throughput_req_per_s",
+            "input_token_throughput_tok_per_s",
+            "output_token_throughput_tok_per_s",
+            "total_token_throughput_tok_per_s",
+            "ttft_mean_ms", "ttft_median_ms", "ttft_p99_ms",
+            "tpot_mean_ms", "tpot_median_ms", "tpot_p99_ms",
+        )
+        for k in promoted:
+            v = results[0].get(k)
+            if v is not None:
+                json_output[k] = v
+
+    json_output["results"] = results if results else None
+    json_output["errors"] = errors if errors else None
 
     json_path = os.path.join(results_dir, f"results_lmbench_{suite_name}.json")
     with open(json_path, "w") as f:
