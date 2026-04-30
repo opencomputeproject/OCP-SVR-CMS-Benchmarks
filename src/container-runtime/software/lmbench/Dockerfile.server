@@ -44,8 +44,13 @@ ARG LMCACHE_GIT_REF=v0.4.4
 RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
         pip install lmcache; \
     else \
-        pip install ninja nvidia-cuda-nvcc-cu12 && \
-        export CUDA_HOME=/opt/server-venv/lib/python3.12/site-packages/nvidia/cuda_nvcc && \
+        apt-get update && apt-get install -y wget gnupg && \
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb && \
+        dpkg -i cuda-keyring_1.1-1_all.deb && rm cuda-keyring_1.1-1_all.deb && \
+        apt-get update && apt-get install -y cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-libraries-dev-13-0 && \
+        rm -rf /var/lib/apt/lists/* && \
+        pip install ninja && \
+        export CUDA_HOME=/usr/local/cuda-13.0 && \
         export PATH="${CUDA_HOME}/bin:${PATH}" && \
         TORCH_CUDA_ARCH_LIST="12.0" \
             pip install --no-build-isolation \
