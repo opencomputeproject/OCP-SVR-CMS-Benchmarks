@@ -1,0 +1,9 @@
+# LMCache Backend: InfiniStore (RDMA)
+# Requires: InfiniStore server reachable at LMCACHE_REMOTE_HOST:LMCACHE_REMOTE_PORT
+# Default:  localhost:12345
+# Optional: LMCACHE_INFINISTORE_DEVICE (e.g., mlx5_1)
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
+remote_url: "infinistore://${LMCACHE_REMOTE_HOST}:${LMCACHE_REMOTE_PORT}"
+remote_serde: "naive"

@@ -1,0 +1,17 @@
+# =============================================================================
+# Split-Machine Override — Client Only
+#
+# Machine A (SUT):  docker compose up lmcache-server
+# Machine B (load): LMBENCH_SERVER_URL=http://<A>:30080 \
+#                     docker compose -f docker-compose.yml \
+#                     -f docker-compose.client-only.yml up lmbench-client
+# =============================================================================
+
+services:
+  lmbench-client:
+    network_mode: "host"
+    depends_on: {}
+
+  lmbench-client-gpu:
+    network_mode: "host"
+    depends_on: {}

@@ -1,0 +1,17 @@
+# LMCache Backend: Maru (CXL Shared Memory)
+# Requires: maru-server running on host with CXL device (/dev/dax*)
+#   Install: git clone https://github.com/xcena-dev/maru && cd maru && ./install.sh
+#   Start:   maru-server
+#
+# Config vars:
+#   LMCACHE_MARU_HOST  (default: localhost)
+#   LMCACHE_MARU_PORT  (default: 5555)
+#   LMCACHE_MARU_POOL_SIZE  (default: 4, in GB)
+chunk_size: 256
+local_cpu: false
+max_local_cpu_size: 0
+save_unfull_chunk: true
+
+# Maru backend — data lives in CXL mmap memory, zero-copy reads
+maru_path: "maru://${LMCACHE_MARU_HOST}:${LMCACHE_MARU_PORT}"
+maru_pool_size: ${LMCACHE_MARU_POOL_SIZE}
