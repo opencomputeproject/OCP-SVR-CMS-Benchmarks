@@ -14,6 +14,7 @@ services:
   # Server: vLLM + LMCache (CPU, default)
   # ---------------------------------------------------------------------------
   lmcache-server:
+    profiles: ["cpu"]
     build:
       context: .
       dockerfile: Dockerfile.server
@@ -23,6 +24,8 @@ services:
     privileged: true
     ports:
       - "30080:30080"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     env_file: .env
     networks:
       - lmbench-net
@@ -43,10 +46,12 @@ services:
       dockerfile: Dockerfile.server
       args:
         VLLM_DEVICE: gpu
-    container_name: ocp-cms-lmcache-server
+    container_name: ocp-cms-lmcache-server-gpu
     privileged: true
     ports:
       - "30080:30080"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     deploy:
       resources:
         reservations:
@@ -68,6 +73,7 @@ services:
   # Client: LMBench workload generator + CMS reporting
   # ---------------------------------------------------------------------------
   lmbench-client:
+    profiles: ["cpu"]
     build:
       context: .
       dockerfile: Dockerfile.client
@@ -91,7 +97,7 @@ services:
       dockerfile: Dockerfile.client
       args:
         LMBENCH_VERSION: ${LMBENCH_VERSION:-main}
-    container_name: ocp-cms-lmbench-client
+    container_name: ocp-cms-lmbench-client-gpu
     privileged: true
     network_mode: "service:lmcache-server-gpu"
     depends_on:
