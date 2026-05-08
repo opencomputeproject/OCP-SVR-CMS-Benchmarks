@@ -1,0 +1,6 @@
+# LMCache Backend: CPU RAM Offloading (default)
+# No external services required.
+# KV cache is offloaded to pinned CPU memory for reuse across requests.
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
