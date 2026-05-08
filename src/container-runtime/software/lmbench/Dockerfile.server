@@ -2,10 +2,18 @@
 # LMCache Server — vLLM + LMCache Serving Engine
 #
 # Pre-baked backend configs in /opt/server/configs/. User selects via:
-#   LMCACHE_BACKEND=cpu_offload|disk|redis|lmserver|mooncake|infinistore|none|custom
+#   LMCACHE_BACKEND=cpu_offload|disk|redis|lmserver|mooncake|infinistore|maru|none|custom
 #
 # At startup, the selected config template is resolved with envsubst
 # and passed to vLLM via LMCACHE_CONFIG_FILE.
+#
+# CPU mode (VLLM_DEVICE=cpu):
+#   Installs vllm-cpu (separate PyPI package). Install order matters —
+#   see step comments below. LMCache patched at runtime for CPU support.
+#
+# GPU mode (VLLM_DEVICE=gpu):
+#   Installs vllm (standard). LMCache built from source with Blackwell
+#   sm_120 support (prebuilt wheel lacks sm_120 CUDA kernels).
 ##################################################################################################
 
 FROM ocp-cms-base:latest
@@ -16,7 +24,7 @@ ARG VLLM_DEVICE=cpu
 RUN apt-get update && apt-get install -y \
     git python3-dev python3-venv \
     gcc-12 g++-12 libtcmalloc-minimal4t64 \
-    curl gettext-base \
+    curl gettext-base sudo \
     && rm -rf /var/lib/apt/lists/* \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 \
        --slave /usr/bin/g++ g++ /usr/bin/g++-12
@@ -27,23 +35,27 @@ ENV VIRTUAL_ENV="/opt/server-venv"
 
 RUN pip install --upgrade pip
 
-# -- Install vLLM (CPU or GPU) ------------------------------------------------
+# =============================================================================
+# CPU PATH: Install order matters. lmcache pulls GPU vllm transitively.
+# We install everything first, then overwrite with vllm-cpu last.
+# =============================================================================
+# -- 1. Install all deps that vllm-cpu needs (--no-deps skips them) -----------
 RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
-        VLLM_TARGET_DEVICE=cpu \
-        pip install vllm --extra-index-url https://download.pytorch.org/whl/cpu; \
-    else \
-        pip install vllm; \
+        pip install lmcache cbor2 gguf openai_harmony cloudpickle Pillow \
+            pybase64 cachetools uvlookup llguidance xgrammar watchfiles \
+            partial_json_parser model_hosting_container_standards einops \
+            prometheus_fastapi_instrumentator intel-openmp \
+        && pip cache purge && rm -rf /root/.cache/pip /tmp/*; \
     fi
 
-# -- Install LMCache --------------------------------------------------------
-# CPU: prebuilt wheel (no CUDA kernels needed).
-# GPU: source build with Blackwell sm_120. Prebuilt wheel's CUDA kernels
-# (multi_layer_kv_transfer) lack sm_120 binary → cudaErrorNoKernelImageForDevice
-# on Blackwell at first KV offload. Force source compile with TORCH_CUDA_ARCH_LIST="12.0".
+# =============================================================================
+# GPU PATH: Standard vllm + source-built LMCache for Blackwell sm_120.
+# Prebuilt LMCache wheel's CUDA kernels (multi_layer_kv_transfer) lack
+# sm_120 binary → cudaErrorNoKernelImageForDevice on Blackwell GPUs.
+# =============================================================================
 ARG LMCACHE_GIT_REF=v0.4.4
-RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
-        pip install lmcache; \
-    else \
+RUN if [ "${VLLM_DEVICE}" != "cpu" ]; then \
+        pip install vllm && \
         apt-get update && apt-get install -y wget gnupg && \
         wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb && \
         dpkg -i cuda-keyring_1.1-1_all.deb && rm cuda-keyring_1.1-1_all.deb && \
@@ -54,22 +66,62 @@ RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
         export PATH="${CUDA_HOME}/bin:${PATH}" && \
         TORCH_CUDA_ARCH_LIST="12.0" \
             pip install --no-build-isolation \
-                "git+https://github.com/LMCache/LMCache.git@${LMCACHE_GIT_REF}"; \
+                "git+https://github.com/LMCache/LMCache.git@${LMCACHE_GIT_REF}" && \
+        pip cache purge && rm -rf /root/.cache/pip /tmp/*; \
     fi
 
-# -- CUDA 12 runtime for nixl_ep (GPU only) ------------------------------------
-# vLLM 0.20.0 ships nixl_ep prebuilt against CUDA 12, while torch wheel pulls CUDA 13.
-# Install CUDA 12 runtime side-by-side and add to LD_LIBRARY_PATH so nixl_ep can dlopen libcudart.so.12.
+# -- CUDA 12 runtime for nixl_ep (GPU only) -----------------------------------
+# vLLM 0.20.0 ships nixl_ep prebuilt against CUDA 12, while torch wheel pulls
+# CUDA 13. Install CUDA 12 runtime side-by-side so nixl_ep can dlopen libcudart.so.12.
 RUN if [ "${VLLM_DEVICE}" != "cpu" ]; then \
         pip install nvidia-cuda-runtime-cu12; \
     fi
 ENV LD_LIBRARY_PATH="/opt/server-venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
+
+# -- 2. Install Maru client library (both CPU and GPU) ------------------------
+RUN pip install git+https://github.com/xcena-dev/maru.git \
+    && pip cache purge && rm -rf /root/.cache/pip /tmp/*
+
+# =============================================================================
+# CPU-ONLY STEPS: Force vllm-cpu to overwrite GPU vllm that lmcache pulled in
+# =============================================================================
+# -- 3. Force reinstall vllm-cpu (overwrites GPU vllm code) -------------------
+RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
+        pip install --force-reinstall --no-deps vllm-cpu \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+        && pip cache purge && rm -rf /root/.cache/pip /tmp/*; \
+    fi
+
+# -- 4. Patch vllm metadata (version must contain "cpu" for platform detection)
+RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
+        VLLM_CPU_VERSION=$(pip show vllm-cpu | grep Version | cut -d' ' -f2) && \
+        SITE_PKGS=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+        rm -rf "${SITE_PKGS}"/vllm-0*.dist-info && \
+        mkdir -p "${SITE_PKGS}/vllm-${VLLM_CPU_VERSION}+cpu.dist-info" && \
+        printf 'Metadata-Version: 2.1\nName: vllm\nVersion: %s+cpu\n' "${VLLM_CPU_VERSION}" \
+            > "${SITE_PKGS}/vllm-${VLLM_CPU_VERSION}+cpu.dist-info/METADATA" && \
+        touch "${SITE_PKGS}/vllm-${VLLM_CPU_VERSION}+cpu.dist-info/RECORD"; \
+    fi
+
+# -- 5. Force CPU torch (lmcache pulled in CUDA torch) -----------------------
+RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
+        pip install torch --extra-index-url https://download.pytorch.org/whl/cpu \
+            --force-reinstall --no-deps \
+        && pip cache purge && rm -rf /root/.cache/pip /tmp/*; \
+    fi
+
+# -- 6. Remove GPU _C.so (lets vllm-cpu AVX512/AVX2 fallback work) -----------
+RUN if [ "${VLLM_DEVICE}" = "cpu" ]; then \
+        rm -f /opt/server-venv/lib/python3.12/site-packages/vllm/_C.abi3.so; \
+    fi
 
 # -- Copy pre-baked backend configs and entrypoint -----------------------------
 WORKDIR /opt/server
 COPY configs/ /opt/server/configs/
 COPY server-entrypoint.sh /opt/server/server-entrypoint.sh
 RUN chmod +x /opt/server/server-entrypoint.sh
+
+RUN ls -la /opt/server/configs/
 
 EXPOSE 30080
 ENTRYPOINT ["/opt/server/server-entrypoint.sh"]

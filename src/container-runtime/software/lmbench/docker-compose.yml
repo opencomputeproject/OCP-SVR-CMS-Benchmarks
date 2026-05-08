@@ -3,15 +3,22 @@ version: '3.8'
 # =============================================================================
 # LMBench + LMCache — Two-Container Benchmark
 #
-#   CPU mode:   docker compose up
+#   CPU mode:   docker compose --profile cpu up
 #   GPU mode:   docker compose --profile gpu up
 #   Split mode: see docker-compose.client-only.yml
+#
+# Server uses network_mode: host for access to host-local services
+# (maru-server, redis, etc.) and CXL DAX devices.
+#
+# IMPORTANT: For Maru backend, CXL DAX devices must be explicitly mapped.
+# List your /dev/dax* devices under the "devices:" section below.
+# Run "ls /dev/dax*" on the host to find them.
 # =============================================================================
 
 services:
 
   # ---------------------------------------------------------------------------
-  # Server: vLLM + LMCache (CPU, default)
+  # Server: vLLM + LMCache (CPU)
   # ---------------------------------------------------------------------------
   lmcache-server:
     profiles: ["cpu"]
@@ -22,19 +29,22 @@ services:
         VLLM_DEVICE: cpu
     container_name: ocp-cms-lmcache-server
     privileged: true
-    ports:
-      - "30080:30080"
+    network_mode: host
     volumes:
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     env_file: .env
-    networks:
-      - lmbench-net
+    # -- CXL DAX device mapping (required for Maru backend) --
+    # Uncomment and edit to match your /dev/dax* devices.
+    # Run "ls /dev/dax*" on the host to find the correct paths.
+    # devices:
+    #   - /dev/dax0.0:/dev/dax0.0
+    #   - /dev/dax12.0:/dev/dax12.0
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:30080/v1/models"]
-      interval: 15s
-      timeout: 5s
-      retries: 60
-      start_period: 120s
+      interval: 30s
+      timeout: 10s
+      retries: 120
+      start_period: 300s
 
   # ---------------------------------------------------------------------------
   # Server: vLLM + LMCache (GPU)
@@ -48,8 +58,7 @@ services:
         VLLM_DEVICE: gpu
     container_name: ocp-cms-lmcache-server-gpu
     privileged: true
-    ports:
-      - "30080:30080"
+    network_mode: host
     volumes:
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     deploy:
@@ -60,14 +69,14 @@ services:
               count: all
               capabilities: [gpu]
     env_file: .env
-    networks:
-      - lmbench-net
+    # devices:
+    #   - /dev/dax0.0:/dev/dax0.0
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:30080/v1/models"]
-      interval: 15s
-      timeout: 5s
-      retries: 60
-      start_period: 120s
+      interval: 30s
+      timeout: 10s
+      retries: 120
+      start_period: 300s
 
   # ---------------------------------------------------------------------------
   # Client: LMBench workload generator + CMS reporting
@@ -89,7 +98,7 @@ services:
       - ${HOST_RESULTS_DIR:-./results}:/opt/lmbench/container_results
     env_file: .env
 
-  # Client (GPU variant — same image, different network dependency)
+  # Client (GPU variant)
   lmbench-client-gpu:
     profiles: ["gpu"]
     build:
@@ -106,7 +115,3 @@ services:
     volumes:
       - ${HOST_RESULTS_DIR:-./results}:/opt/lmbench/container_results
     env_file: .env
-
-networks:
-  lmbench-net:
-    driver: bridge
