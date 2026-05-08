@@ -4,7 +4,7 @@
 #
 # 1. Selects a pre-baked lmcache config from /opt/server/configs/
 # 2. Substitutes env vars into it (host, port, etc.)
-# 3. Installs any external backend plugin
+# 3. Patches LMCache for CPU platform support (if needed)
 # 4. Starts vLLM on port 30080, waits for readiness
 # =============================================================================
 set -e
@@ -35,7 +35,6 @@ if [ "${BACKEND}" = "none" ]; then
     rm -f "${RUNTIME_CONFIG}"
 
 elif [ "${BACKEND}" = "custom" ]; then
-    # User provides full config via base64 env var or mounted file
     if [ -n "${LMCACHE_CONFIG_FILE_CONTENT:-}" ]; then
         echo "${LMCACHE_CONFIG_FILE_CONTENT}" | base64 -d > "${RUNTIME_CONFIG}"
         echo "[SERVER] Using custom config from LMCACHE_CONFIG_FILE_CONTENT"
@@ -44,12 +43,10 @@ elif [ "${BACKEND}" = "custom" ]; then
         echo "[SERVER] Using mounted custom_config.yaml"
     else
         echo "[SERVER] ERROR: LMCACHE_BACKEND=custom but no config provided"
-        echo "[SERVER] Set LMCACHE_CONFIG_FILE_CONTENT or mount custom_config.yaml"
         exit 1
     fi
 
 else
-    # Pick pre-baked config by name
     TEMPLATE="${CONFIGS_DIR}/${BACKEND}.yaml"
     if [ ! -f "${TEMPLATE}" ]; then
         echo "[SERVER] ERROR: No config for backend '${BACKEND}'"
@@ -58,59 +55,38 @@ else
         exit 1
     fi
 
-    # Set defaults for envsubst
     export LMCACHE_REMOTE_HOST="${LMCACHE_REMOTE_HOST:-localhost}"
     export LMCACHE_REMOTE_PORT="${LMCACHE_REMOTE_PORT:-6379}"
     export LMCACHE_MOONCAKE_METADATA_SERVER="${LMCACHE_MOONCAKE_METADATA_SERVER:-http://${LMCACHE_REMOTE_HOST}:8080/metadata}"
     export LMCACHE_MOONCAKE_PROTOCOL="${LMCACHE_MOONCAKE_PROTOCOL:-tcp}"
     export HOSTNAME="${HOSTNAME:-$(hostname)}"
-    # Maru defaults
     export LMCACHE_MARU_HOST="${LMCACHE_MARU_HOST:-localhost}"
     export LMCACHE_MARU_PORT="${LMCACHE_MARU_PORT:-5555}"
     export LMCACHE_MARU_POOL_SIZE="${LMCACHE_MARU_POOL_SIZE:-4}"
 
-    # Substitute env vars into template
     envsubst < "${TEMPLATE}" > "${RUNTIME_CONFIG}"
     echo "[SERVER] Backend config: ${BACKEND}"
     cat "${RUNTIME_CONFIG}"
 fi
 
-# InfiniStore device append (optional)
+# InfiniStore device append
 if [ "${BACKEND}" = "infinistore" ] && [ -n "${LMCACHE_INFINISTORE_DEVICE:-}" ]; then
     sed -i "s|infinistore://\([^\"]*\)\"|infinistore://\1/?device=${LMCACHE_INFINISTORE_DEVICE}\"|" "${RUNTIME_CONFIG}"
 fi
 
-# Maru requires maru + maru_lmcache Python packages
+# Maru package check
 if [ "${BACKEND}" = "maru" ]; then
-    if ! python3 -c "import maru" 2>/dev/null; then
-        echo "[SERVER] Installing Maru packages..."
-        pip install maru maru-lmcache || \
-            echo "[SERVER] WARNING: Maru pip install failed — trying from source"
-        if ! python3 -c "import maru" 2>/dev/null; then
-            echo "[SERVER] Attempting Maru install from source..."
-            git clone https://github.com/xcena-dev/maru.git /tmp/maru && \
-                cd /tmp/maru && ./install.sh && cd /opt/server || \
-                echo "[SERVER] ERROR: Maru install failed"
-        fi
+    if python3 -c "import maru" 2>/dev/null; then
+        echo "[SERVER] Maru packages: found"
     else
-        echo "[SERVER] Maru packages: already installed"
+        echo "[SERVER] WARNING: 'import maru' failed inside container."
+        echo "[SERVER] Continuing — vLLM+LMCache will fail if packages are missing."
     fi
 fi
 
 # -------------------------------------------------------------------------
-# 2. External backend plugin (e.g., Maru)
+# 2. Extra packages
 # -------------------------------------------------------------------------
-if [ -n "${LMCACHE_EXTERNAL_BACKEND_PACKAGE:-}" ]; then
-    echo "[SERVER] Installing external backend: ${LMCACHE_EXTERNAL_BACKEND_PACKAGE}"
-    pip install "${LMCACHE_EXTERNAL_BACKEND_PACKAGE}" || \
-        echo "[SERVER] WARNING: Install failed for ${LMCACHE_EXTERNAL_BACKEND_PACKAGE}"
-fi
-
-if [ -n "${LMCACHE_EXTERNAL_BACKENDS:-}" ] && [ -f "${RUNTIME_CONFIG}" ]; then
-    echo "external_backends: \"${LMCACHE_EXTERNAL_BACKENDS}\"" >> "${RUNTIME_CONFIG}"
-    echo "[SERVER] Added external_backends: ${LMCACHE_EXTERNAL_BACKENDS}"
-fi
-
 if [ -n "${EXTRA_PIP_PACKAGES:-}" ]; then
     pip install ${EXTRA_PIP_PACKAGES} || true
 fi
@@ -121,20 +97,72 @@ fi
 if [ "${DEVICE}" = "cpu" ]; then
     _tcmalloc=$(find /usr/lib -name "libtcmalloc_minimal*" 2>/dev/null | head -1)
     [ -n "${_tcmalloc}" ] && export LD_PRELOAD="${_tcmalloc}:${LD_PRELOAD:-}"
+    _iomp=$(find /opt/server-venv -name "libiomp5.so" 2>/dev/null | head -1)
+    [ -n "${_iomp}" ] && export LD_PRELOAD="${_iomp}:${LD_PRELOAD:-}"
     export VLLM_TARGET_DEVICE=cpu
     export VLLM_CPU_KVCACHE_SPACE="${VLLM_CPU_KVCACHE_SPACE:-4}"
     export VLLM_CPU_OMP_THREADS_BIND="${VLLM_CPU_OMP_THREADS_BIND:-auto}"
 fi
 
 # -------------------------------------------------------------------------
-# 4. Build vllm serve command
+# 4. Patch LMCache for CPU platform support
+# -------------------------------------------------------------------------
+# LMCache only knows CUDA/XPU/HPU — no CPU path. We patch two files:
+#   a) utils.py: get_vllm_torch_dev() — add CPU device detection
+#   b) gpu_connector/__init__.py: CreateGPUConnector() — use MockGPUConnector on CPU
+if [ "${DEVICE}" = "cpu" ] && [ "${BACKEND}" != "none" ]; then
+
+    # Patch a) get_vllm_torch_dev — add CPU elif branch
+    UTILS_FILE=$(find /opt/server-venv -path "*/lmcache/integration/vllm/utils.py" | head -1)
+    if [ -n "${UTILS_FILE}" ]; then
+        python3 << 'PATCHEOF'
+import os
+f = os.popen("find /opt/server-venv -path '*/lmcache/integration/vllm/utils.py'").read().strip()
+t = open(f).read()
+old = '    else:\n        raise RuntimeError("Unsupported device platform for LMCache engine.")'
+new = '    elif current_platform.is_cpu():\n        logger.info("CPU device detected. Using CPU for LMCache engine.")\n        import types\n        cpu_mod = types.ModuleType("torch_cpu_dev")\n        cpu_mod.current_device = lambda: 0\n        cpu_mod.device_count = lambda: 1\n        cpu_mod.set_device = lambda x: None\n        cpu_mod.is_available = lambda: True\n        cpu_mod.mem_get_info = lambda device=None: (0, 0)\n        cpu_mod.synchronize = lambda device=None: None\n        torch_dev = cpu_mod\n        dev_name = "cpu"\n    else:\n        raise RuntimeError("Unsupported device platform for LMCache engine.")'
+if old in t:
+    open(f, 'w').write(t.replace(old, new))
+    print("[SERVER] Patched LMCache utils.py for CPU platform support")
+else:
+    print("[SERVER] LMCache utils.py patch target not found (already patched or different version)")
+PATCHEOF
+    fi
+
+    # Patch b) CreateGPUConnector — use MockGPUConnector on CPU
+    CONNECTOR_FILE=$(find /opt/server-venv -path "*/lmcache/v1/gpu_connector/__init__.py" | head -1)
+    if [ -n "${CONNECTOR_FILE}" ]; then
+        python3 << 'CONNPATCH'
+import os
+f = os.popen("find /opt/server-venv -path '*/lmcache/v1/gpu_connector/__init__.py'").read().strip()
+t = open(f).read()
+old = '        else:\n            raise RuntimeError("No supported connector found for the current platform.")'
+new = '        elif dev_name == "cpu":\n            kv_shape = metadata.kv_shape\n            return MockGPUConnector(kv_shape=kv_shape)\n        else:\n            raise RuntimeError("No supported connector found for the current platform.")'
+if old in t:
+    open(f, 'w').write(t.replace(old, new))
+    print("[SERVER] Patched gpu_connector/__init__.py — using MockGPUConnector for CPU")
+else:
+    print("[SERVER] GPU connector patch target not found (already patched or different version)")
+CONNPATCH
+    fi
+fi
+
+# -------------------------------------------------------------------------
+# 5. HuggingFace auth
+# -------------------------------------------------------------------------
+export HF_TOKEN="${HF_TOKEN:-}"
+export HUGGING_FACE_HUB_TOKEN="${HF_TOKEN}"
+
+# -------------------------------------------------------------------------
+# 6. Build vllm serve command
 # -------------------------------------------------------------------------
 export LMCACHE_USE_EXPERIMENTAL=True
 
 VLLM_ARGS=(serve "${MODEL}" --port "${PORT}" --max-model-len "${MAX_LEN}")
 
 if [ "${DEVICE}" = "cpu" ]; then
-    VLLM_ARGS+=(--device cpu --dtype "${VLLM_CPU_DTYPE:-auto}")
+    # vllm-cpu does not accept --device cpu flag
+    VLLM_ARGS+=(--dtype "${VLLM_CPU_DTYPE:-auto}")
     TP="${VLLM_CPU_TP:-1}"
     [ "${TP}" -gt 1 ] 2>/dev/null && \
         VLLM_ARGS+=(--tensor-parallel-size "${TP}" --distributed-executor-backend mp)
@@ -151,7 +179,7 @@ fi
 echo "[SERVER] Starting: vllm ${VLLM_ARGS[*]}"
 
 # -------------------------------------------------------------------------
-# 5. Launch and wait for readiness
+# 7. Launch and wait for readiness
 # -------------------------------------------------------------------------
 vllm "${VLLM_ARGS[@]}" &
 VLLM_PID=$!
