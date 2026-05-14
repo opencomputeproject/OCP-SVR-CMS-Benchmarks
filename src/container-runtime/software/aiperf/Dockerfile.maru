@@ -1,0 +1,66 @@
+##################################################################################################
+# Maru — CXL Shared Memory KV Cache Engine (Resource Manager + Metadata Server)
+#
+# Single container running both Maru components:
+#   1. maru-resource-manager (C++ binary) — manages CXL DAX memory pool, port 9850
+#   2. maru-server (Python) — KV metadata server, port 5555
+#
+# Requires /dev/dax* devices mapped into the container via docker-compose devices:.
+# No CXL hardware = no point running this container.
+#
+# The resource manager needs root for /dev/dax* mmap and /sys/bus/dax access.
+# The metadata server connects to the resource manager on localhost:9850.
+##################################################################################################
+
+FROM ocp-cms-base:latest
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG MARU_GIT_REF=main
+
+# -- System packages for C++ build + Python -----------------------------------
+RUN apt-get update && apt-get install -y \
+    git \
+    python3-dev \
+    python3-venv \
+    cmake \
+    libssl-dev \
+    libnuma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# -- Python virtualenv ---------------------------------------------------------
+RUN python3 -m venv /opt/maru-venv
+ENV PATH="/opt/maru-venv/bin:${PATH}"
+ENV VIRTUAL_ENV="/opt/maru-venv"
+
+RUN pip install --upgrade pip
+
+# -- Clone Maru ----------------------------------------------------------------
+RUN git clone --branch ${MARU_GIT_REF} \
+        https://github.com/xcena-dev/maru.git /opt/maru-src
+
+# -- Build maru-resource-manager (C++) ----------------------------------------
+RUN cd /opt/maru-src/maru_resource_manager && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMARU_BUILD_TESTS=OFF && \
+    cmake --build . && \
+    cmake --install . --prefix /usr/local && \
+    rm -rf /opt/maru-src/maru_resource_manager/build
+
+# -- Install Maru Python package (maru-server + client libs) -------------------
+RUN cd /opt/maru-src && \
+    pip install . && \
+    pip cache purge && rm -rf /root/.cache/pip /tmp/*
+
+# -- State directory for resource manager WAL/metadata -------------------------
+RUN mkdir -p /var/lib/maru-resourced
+
+# -- Copy entrypoint -----------------------------------------------------------
+WORKDIR /opt/maru
+COPY maru-entrypoint.sh /opt/maru/maru-entrypoint.sh
+RUN chmod +x /opt/maru/maru-entrypoint.sh
+
+EXPOSE 5555 9850
+ENTRYPOINT ["/opt/maru/maru-entrypoint.sh"]
