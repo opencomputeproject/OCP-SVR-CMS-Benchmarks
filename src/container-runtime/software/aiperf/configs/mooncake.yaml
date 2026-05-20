@@ -1,0 +1,17 @@
+# LMCache Backend: Mooncake Distributed Store
+# Requires: Mooncake master + metadata server
+#   LMCACHE_REMOTE_HOST:LMCACHE_REMOTE_PORT  = mooncake master (default: localhost:50051)
+#   LMCACHE_MOONCAKE_METADATA_SERVER          = metadata endpoint
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
+remote_url: "mooncakestore://${LMCACHE_REMOTE_HOST}:${LMCACHE_REMOTE_PORT}/"
+remote_serde: "naive"
+extra_config:
+  local_hostname: "${HOSTNAME}"
+  metadata_server: "${LMCACHE_MOONCAKE_METADATA_SERVER}"
+  protocol: "${LMCACHE_MOONCAKE_PROTOCOL}"
+  master_server_address: "${LMCACHE_REMOTE_HOST}:${LMCACHE_REMOTE_PORT}"
+  global_segment_size: 3355443200
+  local_buffer_size: 1073741824
+  transfer_timeout: 1

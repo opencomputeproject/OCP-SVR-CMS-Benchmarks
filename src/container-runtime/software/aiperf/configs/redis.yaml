@@ -1,0 +1,8 @@
+# LMCache Backend: Redis Remote Store
+# Requires: Redis server reachable at LMCACHE_REMOTE_HOST:LMCACHE_REMOTE_PORT
+# Default:  redis:6379 (docker compose service name) or localhost:6379
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
+remote_url: "redis://${LMCACHE_REMOTE_HOST}:${LMCACHE_REMOTE_PORT}"
+remote_serde: "naive"
