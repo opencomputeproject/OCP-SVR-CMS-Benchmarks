@@ -1,0 +1,109 @@
+version: '3.8'
+
+# =============================================================================
+# AIPerf + LMCache + Maru — Three-Container Benchmark (GPU)
+#
+#   docker compose build && docker compose up
+#
+# Startup order: maru → lmcache-server-gpu → aiperf-client
+#
+# All containers use network_mode: host for simplicity and because
+# the Maru resource manager needs direct /dev/dax* access and
+# localhost communication between components.
+#
+# IMPORTANT: CXL DAX devices must be explicitly mapped into both
+# the maru and lmcache-server-gpu containers. Run "ls /dev/dax*"
+# on the host to find the correct device paths.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Maru: CXL Shared Memory KV Cache Engine
+  #   - maru-resource-manager (C++, port 9850) — manages DAX memory pool
+  #   - maru-server (Python, port 5555) — KV metadata server
+  # ---------------------------------------------------------------------------
+  maru:
+    build:
+      context: .
+      dockerfile: Dockerfile.maru
+      args:
+        MARU_GIT_REF: ${MARU_GIT_REF:-main}
+    container_name: ocp-cms-aiperf-maru
+    privileged: true
+    network_mode: host
+    env_file: .env
+    environment:
+      - MARU_SERVER_HOST=${MARU_SERVER_HOST:-0.0.0.0}
+      - MARU_SERVER_PORT=${LMCACHE_MARU_PORT:-5555}
+      - MARU_RM_HOST=${MARU_RM_HOST:-127.0.0.1}
+      - MARU_RM_PORT=${MARU_RM_PORT:-9850}
+      - MARU_LOG_LEVEL=${MARU_LOG_LEVEL:-INFO}
+    # -- CXL DAX device mapping (REQUIRED) --
+    # Uncomment and edit to match your /dev/dax* devices.
+    # Run "ls /dev/dax*" on the host to find the correct paths.
+    # devices:
+    #   - /dev/dax0.0:/dev/dax0.0
+    #   - /dev/dax12.0:/dev/dax12.0
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/${LMCACHE_MARU_PORT:-5555}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Server: vLLM + LMCache (GPU)
+  # ---------------------------------------------------------------------------
+  lmcache-server-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: ocp-cms-aiperf-lmcache-server
+    privileged: true
+    network_mode: host
+    depends_on:
+      maru:
+        condition: service_healthy
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file: .env
+    # -- CXL DAX device mapping (required for Maru backend) --
+    # Must match the same devices mapped into the maru container.
+    # The vLLM/LMCache process also needs direct mmap access to
+    # CXL shared memory for zero-copy KV cache reads.
+    # devices:
+    #   - /dev/dax0.0:/dev/dax0.0
+    #   - /dev/dax12.0:/dev/dax12.0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:30080/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 120
+      start_period: 300s
+
+  # ---------------------------------------------------------------------------
+  # Client: AIPerf load generator + CMS reporting
+  # ---------------------------------------------------------------------------
+  aiperf-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+      args:
+        AIPERF_VERSION: ${AIPERF_VERSION:-main}
+    container_name: ocp-cms-aiperf-client
+    privileged: true
+    network_mode: host
+    depends_on:
+      lmcache-server-gpu:
+        condition: service_healthy
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/aiperf-bench/container_results
+    env_file: .env

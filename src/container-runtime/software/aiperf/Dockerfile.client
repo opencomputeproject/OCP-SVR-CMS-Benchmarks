@@ -1,0 +1,55 @@
+##################################################################################################
+# AIPerf Client — Load Generator + CMS Reporting
+#
+# Runs AIPerf (https://github.com/ai-dynamo/aiperf) against an external
+# vLLM/LMCache serving endpoint on localhost:30080.
+#
+# This container never installs vLLM or LMCache — it only generates
+# traffic and collects/parses results into the CMS HTML report format.
+#
+# Uses network_mode: "service:lmcache-server-gpu" in docker-compose so
+# that localhost:30080 reaches the server container directly.
+#
+# NOTE: AIPerf upstream prefers python:3.13-slim-bookworm as its base.
+# We use ocp-cms-base:latest (Ubuntu 24.04) for CMS reporting tool
+# compatibility. If dependency conflicts arise, consider switching to
+# a slim-bookworm base and installing CMS utils manually.
+##################################################################################################
+
+FROM ocp-cms-base:latest
+
+ARG AIPERF_VERSION=main
+ARG DEBIAN_FRONTEND=noninteractive
+
+# -- System packages -----------------------------------------------------------
+RUN apt-get update && apt-get install -y \
+    git \
+    python3-dev \
+    python3-venv \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# -- Python virtualenv ---------------------------------------------------------
+RUN python3 -m venv /opt/client-venv
+ENV PATH="/opt/client-venv/bin:${PATH}"
+ENV VIRTUAL_ENV="/opt/client-venv"
+
+RUN pip install --upgrade pip
+
+# -- Install AIPerf from source ------------------------------------------------
+RUN pip install "git+https://github.com/ai-dynamo/aiperf.git@${AIPERF_VERSION}" \
+    && pip cache purge && rm -rf /root/.cache/pip /tmp/*
+
+# -- Create working directories ------------------------------------------------
+WORKDIR /opt/aiperf-bench
+RUN mkdir -p /opt/aiperf-bench/artifacts \
+             /opt/aiperf-bench/container_results
+
+# -- Copy in CMS integration scripts ------------------------------------------
+COPY client-entrypoint.sh  /opt/aiperf-bench/client-entrypoint.sh
+COPY parse_results.py      /opt/aiperf-bench/parse_results.py
+RUN chmod +x /opt/aiperf-bench/client-entrypoint.sh \
+             /opt/aiperf-bench/parse_results.py
+
+ENTRYPOINT ["/opt/aiperf-bench/client-entrypoint.sh"]

@@ -1,0 +1,8 @@
+# LMCache Backend: LMCache Server (lm:// protocol)
+# Requires: LMCache server reachable at LMCACHE_REMOTE_HOST:LMCACHE_REMOTE_PORT
+# Default:  localhost:65432
+chunk_size: 256
+local_cpu: true
+max_local_cpu_size: 5.0
+remote_url: "lm://${LMCACHE_REMOTE_HOST}:${LMCACHE_REMOTE_PORT}"
+remote_serde: "naive"
