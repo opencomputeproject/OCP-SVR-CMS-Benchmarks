@@ -45,8 +45,11 @@ services:
     # devices:
     #   - /dev/dax0.0:/dev/dax0.0
     #   - /dev/dax12.0:/dev/dax12.0
+    # Not every container runtime likes this env variable and 
+    # the health check will fail. If you need maru to run on 
+    # _not_ 5555 then update this manually. 
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/${LMCACHE_MARU_PORT:-5555}"]
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/5555}"]
       interval: 10s
       timeout: 5s
       retries: 30
