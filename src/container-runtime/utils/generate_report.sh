@@ -595,6 +595,7 @@ cat > "${HTML_FILE}" << 'HTMLEOF'
         }
         .category-content {
             padding: 16px 18px;
+            overflow-x: auto;
         }
 
         /* ---- Subcategory ---- */
