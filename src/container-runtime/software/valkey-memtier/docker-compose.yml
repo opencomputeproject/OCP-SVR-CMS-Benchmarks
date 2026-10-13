@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  valkey-memtier-bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VALKEY_VERSION=${VALKEY_VERSION:-latest}
+        - MEMTIER_VERSION=${MEMTIER_VERSION:-latest}
+    container_name: OCP-CMS-valkey-memtier-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/valkey-bench/results
+    environment:
+      # NUMA / Memory Placement
+      - CPU_NUMA_NODE=${CPU_NUMA_NODE:-}
+      - MEM_NUMA_NODES=${MEM_NUMA_NODES:-}
+      - NUMA_POLICY=${NUMA_POLICY:-}
+      - SERVER_CPU_LIST=${SERVER_CPU_LIST:-}
+      - CLIENT_CPU_NUMA_NODE=${CLIENT_CPU_NUMA_NODE:-}
+      - CLIENT_CPU_LIST=${CLIENT_CPU_LIST:-}
+      # Valkey Server Settings
+      - VALKEY_MAXMEMORY=${VALKEY_MAXMEMORY:-}
+      - VALKEY_MAXMEMORY_POLICY=${VALKEY_MAXMEMORY_POLICY:-}
+      - VALKEY_APPENDONLY=${VALKEY_APPENDONLY:-}
+      - VALKEY_IO_THREADS=${VALKEY_IO_THREADS:-}
+      - VALKEY_EXTRA_ARGS=${VALKEY_EXTRA_ARGS:-}
+      # Memtier Settings
+      - MEMTIER_PHASES=${MEMTIER_PHASES:-}
+      - MEMTIER_PERCENTILES=${MEMTIER_PERCENTILES:-}
+      - MEMTIER_EXTRA_ARGS=${MEMTIER_EXTRA_ARGS:-}
+      # Phase: fill
+      - FILL_TEST_TIME=${FILL_TEST_TIME:-}
+      - FILL_CLIENTS=${FILL_CLIENTS:-}
+      - FILL_THREADS=${FILL_THREADS:-}
+      - FILL_PIPELINE=${FILL_PIPELINE:-}
+      - FILL_DATA_SIZE=${FILL_DATA_SIZE:-}
+      - FILL_RATIO=${FILL_RATIO:-}
+      - FILL_KEY_PATTERN=${FILL_KEY_PATTERN:-}
+      - FILL_KEY_MINIMUM=${FILL_KEY_MINIMUM:-}
+      - FILL_KEY_MAXIMUM=${FILL_KEY_MAXIMUM:-}
+      - FILL_RATE_LIMIT=${FILL_RATE_LIMIT:-}
+      # Phase: read
+      - READ_TEST_TIME=${READ_TEST_TIME:-}
+      - READ_CLIENTS=${READ_CLIENTS:-}
+      - READ_THREADS=${READ_THREADS:-}
+      - READ_PIPELINE=${READ_PIPELINE:-}
+      - READ_DATA_SIZE=${READ_DATA_SIZE:-}
+      - READ_RATIO=${READ_RATIO:-}
+      - READ_KEY_PATTERN=${READ_KEY_PATTERN:-}
+      - READ_KEY_MINIMUM=${READ_KEY_MINIMUM:-}
+      - READ_KEY_MAXIMUM=${READ_KEY_MAXIMUM:-}
+      - READ_RATE_LIMIT=${READ_RATE_LIMIT:-}
+      # Phase: mixed
+      - MIXED_TEST_TIME=${MIXED_TEST_TIME:-}
+      - MIXED_CLIENTS=${MIXED_CLIENTS:-}
+      - MIXED_THREADS=${MIXED_THREADS:-}
+      - MIXED_PIPELINE=${MIXED_PIPELINE:-}
+      - MIXED_DATA_SIZE=${MIXED_DATA_SIZE:-}
+      - MIXED_RATIO=${MIXED_RATIO:-}
+      - MIXED_KEY_PATTERN=${MIXED_KEY_PATTERN:-}
+      - MIXED_KEY_MINIMUM=${MIXED_KEY_MINIMUM:-}
+      - MIXED_KEY_MAXIMUM=${MIXED_KEY_MAXIMUM:-}
+      - MIXED_RATE_LIMIT=${MIXED_RATE_LIMIT:-}
+      # Test Metadata
+      - TEST_NOTE=${TEST_NOTE:-}
+    command: ${ENTRY_COMMAND:-./entrypoint.sh}
