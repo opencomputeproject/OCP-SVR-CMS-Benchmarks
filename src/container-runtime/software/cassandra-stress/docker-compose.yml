@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  cassandra-stress-bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - CASSANDRA_VERSION=${CASSANDRA_VERSION:-5.0}
+    container_name: OCP-CMS-cassandra-stress-benchmark
+    privileged: true
+    volumes:
+      - ${HOST_RESULTS_DIR:-./results}:/opt/cassandra-bench/results
+      - ${HOST_DATA_DIR:-./data}:/data/cassandra
+    environment:
+      # NUMA / Memory Placement
+      - CPU_NUMA_NODE=${CPU_NUMA_NODE:-}
+      - MEM_NUMA_NODES=${MEM_NUMA_NODES:-}
+      - NUMA_POLICY=${NUMA_POLICY:-}
+      - SERVER_CPU_LIST=${SERVER_CPU_LIST:-}
+      - CLIENT_CPU_NUMA_NODE=${CLIENT_CPU_NUMA_NODE:-}
+      - CLIENT_CPU_LIST=${CLIENT_CPU_LIST:-}
+      # Cassandra Server Settings
+      - CASSANDRA_HEAP_SIZE=${CASSANDRA_HEAP_SIZE:-}
+      - MEMTABLE_ALLOCATION_TYPE=${MEMTABLE_ALLOCATION_TYPE:-}
+      - CASSANDRA_YAML_OVERRIDES=${CASSANDRA_YAML_OVERRIDES:-}
+      - CASSANDRA_JVM_EXTRA_OPTS=${CASSANDRA_JVM_EXTRA_OPTS:-}
+      # Stress Settings
+      - DOMAIN_POPULATION=${DOMAIN_POPULATION:-}
+      - STRESS_PHASES=${STRESS_PHASES:-}
+      - STRESS_CL=${STRESS_CL:-}
+      - STRESS_POP_DIST=${STRESS_POP_DIST:-}
+      - STRESS_LOG_INTERVAL=${STRESS_LOG_INTERVAL:-}
+      - STRESS_EXTRA_ARGS=${STRESS_EXTRA_ARGS:-}
+      - COMPACTION_WAIT=${COMPACTION_WAIT:-}
+      # Phase: populate
+      - POPULATE_THREADS=${POPULATE_THREADS:-}
+      # Phase: a (read heavy)
+      - A_OPS=${A_OPS:-}
+      - A_DURATION=${A_DURATION:-}
+      - A_THREADS=${A_THREADS:-}
+      - A_RATE=${A_RATE:-}
+      # Phase: b (blog mix)
+      - B_OPS=${B_OPS:-}
+      - B_DURATION=${B_DURATION:-}
+      - B_THREADS=${B_THREADS:-}
+      - B_RATE=${B_RATE:-}
+      # Phase: c (write heavy)
+      - C_OPS=${C_OPS:-}
+      - C_DURATION=${C_DURATION:-}
+      - C_THREADS=${C_THREADS:-}
+      - C_RATE=${C_RATE:-}
+      # Test Metadata
+      - TEST_NOTE=${TEST_NOTE:-}
+    command: ${ENTRY_COMMAND:-./entrypoint.sh}
