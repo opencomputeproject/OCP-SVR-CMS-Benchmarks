@@ -3,6 +3,7 @@ mlc_injection.delay
 mlc_loaded_latency.input
 *mlc.sh.*
 *sysbench-tpcc.*
+mlc_v*/
 .DS_Store
 
 # Local-only files (do not commit)
@@ -10,3 +11,5 @@ mlc_loaded_latency.input
 **/.env
 results/
 **/results/
+.venv/
+**/.venv/
