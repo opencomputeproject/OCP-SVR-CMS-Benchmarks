@@ -1,0 +1,47 @@
+##################################################################################################
+# OCP SRV CMS - cassandra.yaml overrides (single node, local cassandra-stress client)
+#
+# configure_cassandra.py loads the stock cassandra.yaml shipped with the Cassandra release
+# and applies these keys on top, so every setting not listed here keeps the release default.
+#
+# Values are derived from a production 3-node cluster config (Cassandra 4.0 key names),
+# translated to Cassandra 5.0 key names. Only settings that differ from the 5.0 defaults are
+# listed, plus paths and single-node addressing. Settings that are already the 5.0 default
+# (concurrent_reads/writes 32, commitlog_sync periodic 10000ms, compaction_throughput 64MiB/s,
+# memtable_allocation_type heap_buffers, timeouts, ...) are not repeated here.
+#
+# memtable_allocation_type and any CASSANDRA_YAML_OVERRIDES from the .env file are applied
+# after this file.
+##################################################################################################
+
+# Single node on loopback
+listen_address: 127.0.0.1
+rpc_address: 127.0.0.1
+seed_provider:
+  - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+    parameters:
+      - seeds: "127.0.0.1"
+endpoint_snitch: GossipingPropertyFileSnitch
+allocate_tokens_for_local_replication_factor: 1
+
+# Storage (mounted from the host via HOST_DATA_DIR)
+data_file_directories:
+  - /data/cassandra/data
+commitlog_directory: /data/cassandra/commitlog
+hints_directory: /data/cassandra/hints
+saved_caches_directory: /data/cassandra/saved_caches
+cdc_raw_directory: /data/cassandra/cdc_raw
+
+# Disk behaviour
+trickle_fsync: true
+disk_failure_policy: die
+commit_failure_policy: die
+auto_snapshot: false
+
+# Compaction / flush
+concurrent_compactors: 8
+memtable_flush_writers: 2
+sstable_preemptive_open_interval: null
+
+# Indexing
+column_index_size: 64KiB
